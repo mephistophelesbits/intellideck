@@ -5,7 +5,6 @@ A modern, multi-column RSS reader with local AI integration for summarizing, sen
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%F0%9F%A4%9D-yellow)](https://buymeacoffee.com/kianfongl)
 [![Docker Image](https://img.shields.io/badge/Docker-kianfong%2Frssdeck-blue)](https://hub.docker.com/r/kianfong/rssdeck)
 
-<br/>
 ![RSS Deck Light Theme](docs/light_dashboard.png)
 
 ## ✨ v2.0 Features
