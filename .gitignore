@@ -24,6 +24,17 @@
 .DS_Store
 *.pem
 
+# app data & logs
+/data/
+rss.log
+
+# AI assistant configs
+.claude/
+.codex/
+
+# draft assets
+RSSDECK Landing/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

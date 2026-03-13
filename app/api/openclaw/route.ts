@@ -92,7 +92,6 @@ function getTrendingTopics(): any[] {
 }
 
 export async function GET() {
-    console.log('[OpenClaw RSS] Received request');
     const openclawPath = path.join(process.env.HOME || '/Users/clawking', '.openclaw');
     const logsPath = path.join(openclawPath, 'logs', 'gateway.log');
     const cronRunsPath = path.join(openclawPath, 'cron', 'runs');

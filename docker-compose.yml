@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   rss-deck:
     container_name: rss-deck

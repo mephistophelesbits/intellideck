@@ -2,117 +2,90 @@
 
 import { useEffect, useRef } from 'react';
 import { useSettingsStore } from '@/lib/settings-store';
-import { useDeckStore } from '@/lib/store';
-import { useArticlesStore } from '@/lib/articles-store';
+
+function getLatestDueTimestamp(times: string[], now: Date) {
+  const dueTimestamps = times
+    .map((time) => {
+      const [hours, minutes] = time.split(':').map(Number);
+      if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+      const scheduled = new Date(now);
+      scheduled.setHours(hours, minutes, 0, 0);
+      return scheduled.getTime() <= now.getTime() ? scheduled.getTime() : null;
+    })
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => b - a);
+
+  return dueTimestamps[0] ?? null;
+}
 
 export function BriefingManager() {
-    const { briefingSettings, setBriefingSettings, aiSettings } = useSettingsStore();
-    const columns = useDeckStore((state) => state.columns);
-    const articlesByColumn = useArticlesStore((state) => state.articlesByColumn);
+  const aiSettings = useSettingsStore((state) => state.aiSettings);
+  const briefingSettings = useSettingsStore((state) => state.briefingSettings);
+  const setBriefingSettings = useSettingsStore((state) => state.setBriefingSettings);
+  const isRunningRef = useRef(false);
 
-    const isGeneratingRef = useRef(false);
+  useEffect(() => {
+    const checkSchedule = async () => {
+      if (isRunningRef.current || !briefingSettings.enabled || briefingSettings.times.length === 0) {
+        return;
+      }
 
-    useEffect(() => {
-        if (!briefingSettings.enabled) return;
+      const now = new Date();
+      const latestDue = getLatestDueTimestamp(briefingSettings.times, now);
+      if (!latestDue) return;
 
-        const checkBriefing = async () => {
-            if (isGeneratingRef.current) return;
+      const lastGenerated = briefingSettings.lastGenerated ? new Date(briefingSettings.lastGenerated).getTime() : 0;
+      if (lastGenerated >= latestDue) return;
 
-            const now = new Date();
-            const lastGenerated = briefingSettings.lastGenerated ? new Date(briefingSettings.lastGenerated) : null;
+      isRunningRef.current = true;
 
-            // Find the latest scheduled time that is in the past
-            let latestTargetTime: Date | null = null;
+      try {
+        const response = await fetch('/api/briefings/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ aiSettings }),
+        });
+        const briefing = await response.json();
+        if (!response.ok) {
+          throw new Error(briefing.error || 'Failed to generate scheduled briefing');
+        }
 
-            for (const timeStr of briefingSettings.times) {
-                const [hour, minute] = timeStr.split(':').map(Number);
-                const targetTime = new Date();
-                targetTime.setHours(hour, minute, 0, 0);
+        if (briefingSettings.telegramEnabled && briefingSettings.telegramToken && briefingSettings.telegramChatId) {
+          await fetch('/api/briefings/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              briefing,
+              telegramToken: briefingSettings.telegramToken,
+              telegramChatId: briefingSettings.telegramChatId,
+            }),
+          });
+        }
 
-                if (now >= targetTime) {
-                    // Determine the most recent valid trigger for this specific time slot
-                    // (It's today's slot since we setHours on new Date())
-                    if (!latestTargetTime || targetTime > latestTargetTime) {
-                        latestTargetTime = targetTime;
-                    }
-                }
-            }
+        setBriefingSettings({ lastGenerated: new Date().toISOString() });
+      } catch (error) {
+        console.error('Scheduled briefing failed:', error);
+      } finally {
+        isRunningRef.current = false;
+      }
+    };
 
-            if (!latestTargetTime) return; // No scheduled times have passed today
+    void checkSchedule();
+    const interval = window.setInterval(() => {
+      void checkSchedule();
+    }, 60_000);
 
-            // If we have generated after the latest target time, do nothing
-            if (lastGenerated && lastGenerated >= latestTargetTime) {
-                // Special case: if last generated was yesterday, but latestTargetTime is today
-                // If lastGenerated is essentially "older" than the target trigger
-                // But simple check: if lastGenerated is AFTER the target timestamp, we are good.
-                // Since latestTargetTime is Today X:Y, and lastGenerated could be Today Z:W.
-                return;
-            }
+    return () => window.clearInterval(interval);
+  }, [
+    aiSettings,
+    briefingSettings.enabled,
+    briefingSettings.lastGenerated,
+    briefingSettings.telegramChatId,
+    briefingSettings.telegramEnabled,
+    briefingSettings.telegramToken,
+    briefingSettings.times,
+    setBriefingSettings,
+  ]);
 
-            // Double check: if lastGenerated was yesterday, it is definitely < latestTargetTime (today)
-            // So we proceed.
-
-            // Start generation check
-            // We only want to auto-generate if we haven't done so for this slot.
-
-            // Start generation
-            isGeneratingRef.current = true;
-            console.log('Generating Morning Briefing...');
-
-            try {
-                // Collect top articles from all columns
-                const allTopArticles: any[] = [];
-                columns.forEach(col => {
-                    const colArticles = articlesByColumn.get(col.id) || [];
-                    // Take top 3 from each column
-                    allTopArticles.push(...colArticles.slice(0, 3));
-                });
-
-                if (allTopArticles.length === 0) {
-                    console.log('No articles found for briefing.');
-                    isGeneratingRef.current = false;
-                    return;
-                }
-
-                // Call briefing API
-                const response = await fetch('/api/ai/briefing', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        articles: allTopArticles.map(a => ({
-                            title: a.title,
-                            sourceTitle: a.sourceTitle
-                        })),
-                        aiSettings,
-                        briefingSettings,
-                        telegramSettings: {
-                            enabled: briefingSettings.telegramEnabled,
-                            token: briefingSettings.telegramToken,
-                            chatId: briefingSettings.telegramChatId
-                        }
-                    }),
-                });
-
-                if (response.ok) {
-                    console.log('Morning Briefing generated successfully!');
-                    setBriefingSettings({ lastGenerated: now.toISOString() });
-                } else {
-                    console.error('Failed to generate briefing:', await response.text());
-                }
-            } catch (error) {
-                console.error('Error in BriefingManager:', error);
-            } finally {
-                isGeneratingRef.current = false;
-            }
-        };
-
-        // Check every minute
-        const interval = setInterval(checkBriefing, 60000);
-        // Also check immediately
-        checkBriefing();
-
-        return () => clearInterval(interval);
-    }, [briefingSettings, columns, articlesByColumn, aiSettings, setBriefingSettings]);
-
-    return null; // This is a logic-only component
+  return null;
 }

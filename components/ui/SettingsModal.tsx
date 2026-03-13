@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Coffee, Send, Plus, Trash2, Save, Zap, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Save, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import { useSettingsStore, themes, getThemeById } from '@/lib/settings-store';
 import { useDeckStore } from '@/lib/store';
 import { useArticlesStore } from '@/lib/articles-store';
@@ -24,29 +24,21 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     aiSettings,
     setAiSettings,
-
-    briefingSettings,
-    setBriefingSettings,
   } = useSettingsStore();
 
   const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'connected' | 'disconnected'>('checking');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [isTestingBriefing, setIsTestingBriefing] = useState(false);
-  const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [isTestingAi, setIsTestingAi] = useState(false);
   const [aiTestStatus, setAiTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [aiTestMessage, setAiTestMessage] = useState<string | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
-  const [showTelegramToken, setShowTelegramToken] = useState(false);
-  const [telegramSaved, setTelegramSaved] = useState(false);
   const [showAllThemes, setShowAllThemes] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'briefing'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'ai'>('general');
 
-  const columns = useDeckStore((state) => state.columns);
-  const articlesByColumn = useArticlesStore((state) => state.articlesByColumn);
+  useDeckStore((state) => state.columns);
+  useArticlesStore((state) => state.articlesByColumn);
 
   // Check Ollama connection when modal opens or URL changes
   useEffect(() => {
@@ -73,62 +65,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     checkOllama();
   }, [isOpen, aiSettings.ollamaUrl, aiSettings.provider]);
-
-  const handleSendTestBriefing = async () => {
-    setIsTestingBriefing(true);
-    setTestStatus('idle');
-    setErrorMessage(null);
-    try {
-      // Collect some sampling articles
-      const sampleArticles: any[] = [];
-      columns.slice(0, 3).forEach(col => {
-        const colArticles = articlesByColumn.get(col.id) || [];
-        sampleArticles.push(...colArticles.slice(0, 2));
-      });
-
-      // Fallback if no real articles
-      if (sampleArticles.length === 0) {
-        sampleArticles.push(
-          { title: "Example Global Tech Update", sourceTitle: "Tech Daily" },
-          { title: "Market Trends Analysis", sourceTitle: "Finance Hub" }
-        );
-      }
-
-      const response = await fetch('/api/ai/briefing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          articles: sampleArticles,
-          aiSettings,
-          briefingSettings,
-          telegramSettings: {
-            enabled: true,
-            token: briefingSettings.telegramToken,
-            chatId: briefingSettings.telegramChatId
-          }
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && !data.telegramError) {
-        setTestStatus('success');
-      } else {
-        setTestStatus('error');
-        setErrorMessage(data.telegramError || data.error || 'Unknown error occurred');
-      }
-    } catch (error: any) {
-      console.error('Test briefing failed:', error);
-      setTestStatus('error');
-      setErrorMessage(error.message);
-    } finally {
-      setIsTestingBriefing(false);
-      // Only auto-reset success status
-      if (testStatus === 'success') {
-        setTimeout(() => setTestStatus('idle'), 3000);
-      }
-    }
-  };
 
   const testAiConnection = async () => {
     setIsTestingAi(true);
@@ -185,11 +121,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setTimeout(() => setAiSaved(false), 2000);
   };
 
-  const handleSaveTelegram = () => {
-    setTelegramSaved(true);
-    setTimeout(() => setTelegramSaved(false), 2000);
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -234,16 +165,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               AI Assistant
               {activeTab === 'ai' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t-full" />}
             </button>
-            <button
-              onClick={() => setActiveTab('briefing')}
-              className={cn(
-                "pb-2 transition-colors relative",
-                activeTab === 'briefing' ? "text-foreground font-medium" : "text-foreground-secondary hover:text-foreground"
-              )}
-            >
-              Morning Briefing
-              {activeTab === 'briefing' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t-full" />}
-            </button>
           </div>
         </div>
 
@@ -258,7 +179,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <span>Color Theme</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  {themes.slice(0, showAllThemes ? undefined : 4).map((theme) => (
+                  {themes.map((theme) => (
                     <button
                       key={theme.id}
                       onClick={() => setTheme(theme.id)}
@@ -283,19 +204,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     </button>
                   ))}
                 </div>
-
-                {themes.length > 4 && (
-                  <button
-                    onClick={() => setShowAllThemes(!showAllThemes)}
-                    className="w-full py-1 text-xs text-foreground-secondary hover:text-foreground flex items-center justify-center gap-1 transition-colors"
-                  >
-                    {showAllThemes ? (
-                      <>Show Less <ChevronUp className="w-3 h-3" /></>
-                    ) : (
-                      <>Show All Themes ({themes.length - 4} more) <ChevronDown className="w-3 h-3" /></>
-                    )}
-                  </button>
-                )}
               </div>
 
               {/* Auto Refresh Interval */}
@@ -592,221 +500,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       )}
                     </div>
 
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Morning Briefing Settings */}
-          {activeTab === 'briefing' && (
-            <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-              <div className="space-y-3 pt-4 border-t border-border">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold flex items-center gap-2">
-                    <Coffee className="w-4 h-4 text-orange-500" />
-                    Morning Briefing
-                  </h3>
-                  <button
-                    onClick={() => setBriefingSettings({ enabled: !briefingSettings.enabled })}
-                    className={cn(
-                      'relative w-10 h-5 rounded-full transition-colors',
-                      briefingSettings.enabled ? 'bg-accent' : 'bg-border'
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform',
-                        briefingSettings.enabled ? 'translate-x-5' : 'translate-x-0.5'
-                      )}
-                    />
-                  </button>
-                </div>
-
-                {briefingSettings.enabled && (
-                  <div className="space-y-4 animate-in fade-in slide-in-from-top-1">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium text-foreground-secondary">
-                          Generation Times (Local)
-                        </label>
-                        <button
-                          onClick={() => setBriefingSettings({ times: [...briefingSettings.times, '09:00'] })}
-                          className="text-xs text-accent hover:text-accent-hover flex items-center gap-1"
-                        >
-                          <Plus className="w-3 h-3" />
-                          Add Time
-                        </button>
-                      </div>
-                      <div className="space-y-2">
-                        {briefingSettings.times.map((time, index) => (
-                          <div key={index} className="flex gap-2">
-                            <input
-                              type="time"
-                              value={time}
-                              onChange={(e) => {
-                                const newTimes = [...briefingSettings.times];
-                                newTimes[index] = e.target.value;
-                                setBriefingSettings({ times: newTimes });
-                              }}
-                              className="flex-1 px-3 py-2 rounded-lg border border-border bg-background text-sm focus:border-accent focus:outline-none"
-                            />
-                            {briefingSettings.times.length > 1 && (
-                              <button
-                                onClick={() => {
-                                  const newTimes = briefingSettings.times.filter((_, i) => i !== index);
-                                  setBriefingSettings({ times: newTimes });
-                                }}
-                                className="px-2 text-foreground-secondary hover:text-error transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-foreground-secondary">
-                        Briefings will be generated when you open the app after these times.
-                      </p>
-                    </div>
-
-                    {/* Custom Briefing Prompt */}
-                    <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-medium text-foreground-secondary">
-                          Custom Briefing Prompt
-                        </label>
-                      </div>
-                      <textarea
-                        value={briefingSettings.customPrompt || ''}
-                        onChange={(e) => setBriefingSettings({ customPrompt: e.target.value })}
-                        placeholder="e.g. Write a short haiku about these news articles..."
-                        className="w-full h-32 px-3 py-2 rounded-lg border border-border bg-background text-sm focus:border-accent focus:outline-none resize-y"
-                      />
-                      <p className="text-[10px] text-foreground-secondary leading-tight">
-                        Overrides the default Intelligence Officer prompt. Use <code className="bg-background-tertiary px-1 rounded">{'{{articles}}'}</code> to inject the headlines.
-                      </p>
-                    </div>
-
-                    <div className="space-y-3 p-3 rounded-lg bg-background-tertiary border border-border">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Send className="w-4 h-4 text-sky-500" />
-                          <span className="text-sm font-medium">Telegram Bot Push</span>
-                        </div>
-                        <button
-                          onClick={() => setBriefingSettings({ telegramEnabled: !briefingSettings.telegramEnabled })}
-                          className={cn(
-                            'relative w-10 h-5 rounded-full transition-colors',
-                            briefingSettings.telegramEnabled ? 'bg-sky-500' : 'bg-border'
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform',
-                              briefingSettings.telegramEnabled ? 'translate-x-5' : 'translate-x-0.5'
-                            )}
-                          />
-                        </button>
-                      </div>
-
-                      {briefingSettings.telegramEnabled && (
-                        <div className="space-y-3 pt-2 animate-in fade-in zoom-in-95">
-                          <div className="space-y-1">
-                            <label className="text-xs font-medium text-foreground-secondary">
-                              Bot Token
-                            </label>
-                            <div className="relative">
-                              <input
-                                type={showTelegramToken ? 'text' : 'password'}
-                                value={briefingSettings.telegramToken}
-                                onChange={(e) => setBriefingSettings({ telegramToken: e.target.value })}
-                                placeholder="123456:ABC-DEF..."
-                                className="w-full px-3 py-2 pr-9 rounded-lg border border-border bg-background text-sm focus:border-accent focus:outline-none transition-all"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => setShowTelegramToken(!showTelegramToken)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-foreground-secondary hover:text-foreground transition-colors"
-                                title={showTelegramToken ? 'Hide Token' : 'Show Token'}
-                              >
-                                {showTelegramToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-medium text-foreground-secondary">
-                              Chat ID
-                            </label>
-                            <input
-                              type="text"
-                              value={briefingSettings.telegramChatId}
-                              onChange={(e) => setBriefingSettings({ telegramChatId: e.target.value })}
-                              placeholder="e.g. 123456789"
-                              className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:border-accent focus:outline-none"
-                            />
-                          </div>
-                          <p className="text-[10px] text-foreground-secondary leading-tight">
-                            Talk to @BotFather to get a token and @userinfobot to get your ID.
-                          </p>
-
-                          <div className="flex items-center gap-2 pt-1">
-                            <button
-                              onClick={handleSaveTelegram}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${telegramSaved
-                                ? 'bg-success text-white'
-                                : 'bg-sky-600 text-white hover:bg-sky-500'
-                                }`}
-                            >
-                              {telegramSaved ? (
-                                <><CheckCircle className="w-3.5 h-3.5" /> Saved!</>
-                              ) : (
-                                <><Save className="w-3.5 h-3.5" /> Save</>
-                              )}
-                            </button>
-
-                            <button
-                              onClick={handleSendTestBriefing}
-                              disabled={isTestingBriefing || !briefingSettings.telegramToken || !briefingSettings.telegramChatId}
-                              className={cn(
-                                "flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all border",
-                                testStatus === 'success' ? "border-success text-success bg-success/10" :
-                                  testStatus === 'error' ? "border-error text-error bg-error/10" :
-                                    "border-border text-foreground-secondary hover:text-foreground hover:border-foreground-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-                              )}
-                            >
-                              {isTestingBriefing ? (
-                                <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  Testing...
-                                </>
-                              ) : testStatus === 'success' ? (
-                                <>
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                  Sent!
-                                </>
-                              ) : testStatus === 'error' ? (
-                                <>
-                                  <XCircle className="w-3.5 h-3.5" />
-                                  Failed
-                                </>
-                              ) : (
-                                <>
-                                  <Send className="w-3.5 h-3.5" />
-                                  Test Connection
-                                </>
-                              )}
-                            </button>
-                          </div>
-
-                          {errorMessage && (
-                            <p className="text-[10px] text-error font-medium animate-in fade-in slide-in-from-top-1 px-1">
-                              {errorMessage}
-                            </p>
-                          )}
-                        </div>
-                      )}
-                    </div>
                   </div>
                 )}
               </div>

@@ -4,7 +4,6 @@ import { useState, useRef } from 'react';
 import { X, Loader2, Check, Link2, Folder, Upload, FileText } from 'lucide-react';
 import { useDeckStore, DEFAULT_COLUMN_WIDTH } from '@/lib/store';
 import { useSettingsStore } from '@/lib/settings-store';
-import { useRSSDeckStore } from '@/lib/rssdeck-store';
 import { categories, Category } from '@/lib/categories';
 import { parseOPML, isValidOPML, OPMLFeed } from '@/lib/opml';
 import { cn, generateId } from '@/lib/utils';
@@ -15,6 +14,19 @@ interface AddColumnModalProps {
 }
 
 type Tab = 'url' | 'categories' | 'opml';
+
+async function getApiError(response: Response, fallback: string) {
+  try {
+    const data = await response.json();
+    if (data?.error && typeof data.error === 'string') {
+      return data.error;
+    }
+  } catch {
+    // Ignore JSON parse errors and fall back to the default message.
+  }
+
+  return fallback;
+}
 
 export function AddColumnModal({ isOpen, onClose }: AddColumnModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('categories');
@@ -44,7 +56,9 @@ export function AddColumnModal({ isOpen, onClose }: AddColumnModalProps) {
 
     try {
       const res = await fetch(`/api/rss?url=${encodeURIComponent(url)}`);
-      if (!res.ok) throw new Error('Invalid feed');
+      if (!res.ok) {
+        throw new Error(await getApiError(res, 'Failed to validate feed'));
+      }
 
       const data = await res.json();
       if (data.error) throw new Error(data.error);

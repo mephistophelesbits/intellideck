@@ -17,6 +17,9 @@ export interface FeedSource {
   url: string;
   title: string;
   icon?: string;
+  siteUrl?: string;
+  lastFetchedAt?: string | null;
+  lastError?: string | null;
 }
 
 export interface ColumnSettings {
@@ -38,4 +41,9 @@ export interface FeedResponse {
   description?: string;
   link?: string;
   items: Article[];
+}
+
+export interface DeckStateSnapshot {
+  columns: Column[];
+  savedFeeds: FeedSource[];
 }

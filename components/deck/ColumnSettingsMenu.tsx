@@ -4,10 +4,29 @@ import { useState, useRef, useEffect } from 'react';
 import { Settings, Eye, Clock, Pencil, Check, X, Rss, Trash2, Plus, Loader2 } from 'lucide-react';
 import { Column, FeedSource } from '@/lib/types';
 import { useDeckStore } from '@/lib/store';
+import {
+  addFeedToColumnRequest,
+  removeFeedFromColumnRequest,
+  updateColumnRequest,
+  updateFeedInColumnRequest,
+} from '@/lib/deck-client';
 import { cn, generateId } from '@/lib/utils';
 
 interface ColumnSettingsMenuProps {
   column: Column;
+}
+
+async function getApiError(response: Response, fallback: string) {
+  try {
+    const data = await response.json();
+    if (data?.error && typeof data.error === 'string') {
+      return data.error;
+    }
+  } catch {
+    // Ignore JSON parse errors and fall back to the default message.
+  }
+
+  return fallback;
 }
 
 export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
@@ -25,9 +44,13 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const updateColumn = useDeckStore((state) => state.updateColumn);
-  const addFeedToColumn = useDeckStore((state) => state.addFeedToColumn);
-  const removeFeedFromColumn = useDeckStore((state) => state.removeFeedFromColumn);
+  const setColumns = useDeckStore((state) => state.setColumns);
+  const setSavedFeeds = useDeckStore((state) => state.setSavedFeeds);
+
+  const applyDeckState = (deckState: { columns: Column[]; savedFeeds: FeedSource[] }) => {
+    setColumns(deckState.columns);
+    setSavedFeeds(deckState.savedFeeds);
+  };
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -56,23 +79,23 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
     }
   }, [isRenaming]);
 
-  const handleRename = () => {
+  const handleRename = async () => {
     if (newTitle.trim() && newTitle !== column.title) {
-      updateColumn(column.id, { title: newTitle.trim() });
+      applyDeckState(await updateColumnRequest(column.id, { title: newTitle.trim() }));
     }
     setIsRenaming(false);
   };
 
-  const handleViewModeChange = (mode: 'compact' | 'comfortable') => {
-    updateColumn(column.id, {
+  const handleViewModeChange = async (mode: 'compact' | 'comfortable') => {
+    applyDeckState(await updateColumnRequest(column.id, {
       settings: { ...column.settings, viewMode: mode },
-    });
+    }));
   };
 
-  const handleRefreshIntervalChange = (interval: number) => {
-    updateColumn(column.id, {
+  const handleRefreshIntervalChange = async (interval: number) => {
+    applyDeckState(await updateColumnRequest(column.id, {
       settings: { ...column.settings, refreshInterval: interval },
-    });
+    }));
   };
 
   const handleEditSource = (source: FeedSource) => {
@@ -81,20 +104,18 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
     setEditingSourceTitle(source.title);
   };
 
-  const handleSaveSourceEdit = () => {
+  const handleSaveSourceEdit = async () => {
     if (!editingSourceId || !editingSourceUrl.trim()) return;
 
-    const updatedSources = column.sources.map((s) =>
-      s.id === editingSourceId
-        ? { ...s, url: editingSourceUrl.trim(), title: editingSourceTitle.trim() || s.title }
-        : s
-    );
-    updateColumn(column.id, { sources: updatedSources });
+    applyDeckState(await updateFeedInColumnRequest(column.id, editingSourceId, {
+      url: editingSourceUrl.trim(),
+      title: editingSourceTitle.trim() || undefined,
+    }));
     setEditingSourceId(null);
   };
 
-  const handleDeleteSource = (sourceId: string) => {
-    removeFeedFromColumn(column.id, sourceId);
+  const handleDeleteSource = async (sourceId: string) => {
+    applyDeckState(await removeFeedFromColumnRequest(column.id, sourceId));
   };
 
   const handleAddSource = async () => {
@@ -108,21 +129,23 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
 
     try {
       const res = await fetch(`/api/rss?url=${encodeURIComponent(newSourceUrl)}`);
-      if (!res.ok) throw new Error('Invalid feed');
+      if (!res.ok) {
+        throw new Error(await getApiError(res, 'Failed to validate feed'));
+      }
 
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      addFeedToColumn(column.id, {
+      applyDeckState(await addFeedToColumnRequest(column.id, {
         id: generateId(),
         url: newSourceUrl,
         title: data.title || 'Custom Feed',
-      });
+      }));
 
       setNewSourceUrl('');
       setIsAddingSource(false);
-    } catch (err: any) {
-      setError(err.message || 'Failed to validate feed');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to validate feed');
       console.error(err);
     } finally {
       setIsValidating(false);
@@ -151,7 +174,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRename();
+                    if (e.key === 'Enter') void handleRename();
                     if (e.key === 'Escape') {
                       setNewTitle(column.title);
                       setIsRenaming(false);
@@ -160,7 +183,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
                   className="flex-1 px-2 py-1 text-sm bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-accent"
                 />
                 <button
-                  onClick={handleRename}
+                  onClick={() => void handleRename()}
                   className="p-1 hover:bg-background rounded text-success"
                 >
                   <Check className="w-4 h-4" />
@@ -223,7 +246,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
                         />
                         <div className="flex justify-end gap-1">
                           <button
-                            onClick={handleSaveSourceEdit}
+                            onClick={() => void handleSaveSourceEdit()}
                             className="p-1 hover:bg-background-tertiary rounded text-success"
                           >
                             <Check className="w-3 h-3" />
@@ -250,7 +273,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
                             <Pencil className="w-3 h-3" />
                           </button>
                           <button
-                            onClick={() => handleDeleteSource(source.id)}
+                            onClick={() => void handleDeleteSource(source.id)}
                             className="p-1 hover:bg-background-tertiary rounded text-foreground-secondary hover:text-error"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -274,7 +297,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
                       placeholder="https://example.com/feed.xml"
                       className="w-full px-2 py-1 text-xs bg-background-tertiary border border-border rounded focus:outline-none focus:ring-1 focus:ring-accent"
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleAddSource();
+                        if (e.key === 'Enter') void handleAddSource();
                         if (e.key === 'Escape') {
                           setIsAddingSource(false);
                           setNewSourceUrl('');
@@ -284,7 +307,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
                     {error && <p className="text-xs text-error">{error}</p>}
                     <div className="flex justify-end gap-1">
                       <button
-                        onClick={handleAddSource}
+                        onClick={() => void handleAddSource()}
                         disabled={isValidating}
                         className="p-1 hover:bg-background-tertiary rounded text-success disabled:opacity-50"
                       >
@@ -327,7 +350,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
             </div>
             <div className="flex gap-1 mt-1">
               <button
-                onClick={() => handleViewModeChange('comfortable')}
+                onClick={() => void handleViewModeChange('comfortable')}
                 className={cn(
                   'flex-1 px-2 py-1 text-xs rounded transition-colors',
                   column.settings.viewMode === 'comfortable'
@@ -338,7 +361,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
                 Comfortable
               </button>
               <button
-                onClick={() => handleViewModeChange('compact')}
+                onClick={() => void handleViewModeChange('compact')}
                 className={cn(
                   'flex-1 px-2 py-1 text-xs rounded transition-colors',
                   column.settings.viewMode === 'compact'
@@ -361,7 +384,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
               {[5, 10, 15, 30].map((mins) => (
                 <button
                   key={mins}
-                  onClick={() => handleRefreshIntervalChange(mins)}
+                  onClick={() => void handleRefreshIntervalChange(mins)}
                   className={cn(
                     'px-2 py-1 text-xs rounded transition-colors',
                     column.settings.refreshInterval === mins

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 import { X, ExternalLink, Loader2, AlertCircle, Globe } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { cn } from '@/lib/utils';
@@ -257,6 +258,7 @@ interface UrlPreviewContextType {
 const UrlPreviewContext = createContext<UrlPreviewContextType | null>(null);
 
 export function UrlPreviewProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewPosition, setPreviewPosition] = useState<{ x: number; y: number } | undefined>();
 
@@ -269,6 +271,10 @@ export function UrlPreviewProvider({ children }: { children: ReactNode }) {
     setPreviewUrl(null);
     setPreviewPosition(undefined);
   }, []);
+
+  useEffect(() => {
+    closePreview();
+  }, [pathname, closePreview]);
 
   return (
     <UrlPreviewContext.Provider value={{ previewUrl, previewPosition, openPreview, closePreview }}>

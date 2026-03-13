@@ -1,11 +1,20 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useRef, useState } from 'react';
 import { X, Loader2, Check, Link2, Folder, Plus, Columns, Trash2, Upload, FileText } from 'lucide-react';
 import { useDeckStore, DEFAULT_COLUMN_WIDTH } from '@/lib/store';
 import { useSettingsStore } from '@/lib/settings-store';
 import { categories, Category } from '@/lib/categories';
 import { parseOPML, isValidOPML, OPMLFeed } from '@/lib/opml';
+import {
+  addFeedToColumnRequest,
+  createColumnRequest,
+  deleteSavedFeedRequest,
+  fetchDeckState,
+  getOpmlExportUrl,
+  updateColumnRequest,
+} from '@/lib/deck-client';
+import { DeckStateSnapshot, FeedSource } from '@/lib/types';
 import { cn, generateId } from '@/lib/utils';
 
 interface AddFeedModalProps {
@@ -14,7 +23,20 @@ interface AddFeedModalProps {
 }
 
 type Tab = 'url' | 'categories' | 'opml';
-type TargetType = 'new' | string; // 'new' or column ID
+type TargetType = 'new' | string;
+
+async function getApiError(response: Response, fallback: string) {
+  try {
+    const data = await response.json();
+    if (data?.error && typeof data.error === 'string') {
+      return data.error;
+    }
+  } catch {
+    // Ignore JSON parse errors and fall back to the default message.
+  }
+
+  return fallback;
+}
 
 export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('categories');
@@ -22,22 +44,54 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [targetColumn, setTargetColumn] = useState<TargetType>('new');
-
-  // OPML state
   const [opmlFeeds, setOpmlFeeds] = useState<OPMLFeed[]>([]);
   const [opmlError, setOpmlError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const columns = useDeckStore((state) => state.columns);
-  const addColumn = useDeckStore((state) => state.addColumn);
-  const addFeedToColumn = useDeckStore((state) => state.addFeedToColumn);
   const savedFeeds = useDeckStore((state) => state.savedFeeds);
-  const addSavedFeed = useDeckStore((state) => state.addSavedFeed);
-  const removeSavedFeed = useDeckStore((state) => state.removeSavedFeed);
+  const setColumns = useDeckStore((state) => state.setColumns);
+  const setSavedFeeds = useDeckStore((state) => state.setSavedFeeds);
   const { defaultRefreshInterval, defaultViewMode } = useSettingsStore();
 
   if (!isOpen) return null;
+
+  const applyDeckState = (deckState: DeckStateSnapshot) => {
+    setColumns(deckState.columns);
+    setSavedFeeds(deckState.savedFeeds);
+  };
+
+  const buildFeed = (feedUrl: string, title: string): FeedSource => ({
+    id: generateId(),
+    url: feedUrl,
+    title,
+  });
+
+  const buildColumnPayload = (
+    id: string,
+    title: string,
+    type: 'single-feed' | 'category' | 'unified',
+    sources: FeedSource[]
+  ) => ({
+    id,
+    title,
+    type,
+    sources,
+    settings: {
+      refreshInterval: defaultRefreshInterval,
+      viewMode: defaultViewMode,
+    },
+    width: DEFAULT_COLUMN_WIDTH,
+  });
+
+  const requireTargetColumn = () => {
+    const column = columns.find((item) => item.id === targetColumn);
+    if (!column) {
+      throw new Error('Target column not found');
+    }
+    return column;
+  };
 
   const handleAddCustomFeed = async () => {
     if (!url.trim()) {
@@ -50,90 +104,57 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
 
     try {
       const res = await fetch(`/api/rss?url=${encodeURIComponent(url)}`);
-      if (!res.ok) throw new Error('Invalid feed');
+      if (!res.ok) {
+        throw new Error(await getApiError(res, 'Failed to validate feed'));
+      }
 
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
       const feedTitle = data.title || 'Custom Feed';
+      const feed = buildFeed(url, feedTitle);
 
       if (targetColumn === 'new') {
-        // Create new column
-        addColumn({
-          id: generateId(),
-          title: feedTitle,
-          type: 'single-feed',
-          sources: [
-            {
-              id: generateId(),
-              url: url,
-              title: feedTitle,
-            },
-          ],
-          settings: {
-            refreshInterval: defaultRefreshInterval,
-            viewMode: defaultViewMode,
-          },
-          width: DEFAULT_COLUMN_WIDTH,
-        });
+        applyDeckState(await createColumnRequest(
+          buildColumnPayload(generateId(), feedTitle, 'single-feed', [feed])
+        ));
       } else {
-        // Add to existing column
-        addFeedToColumn(targetColumn, {
-          id: generateId(),
-          url: url,
-          title: feedTitle,
-        });
+        applyDeckState(await addFeedToColumnRequest(targetColumn, feed));
       }
-
-      // Auto-save the feed for future use
-      addSavedFeed({
-        id: crypto.randomUUID(),
-        url: url,
-        title: feedTitle,
-      });
 
       setUrl('');
       setTargetColumn('new');
       onClose();
-    } catch (err: any) {
-      setError(err.message || 'Failed to validate feed. Please check the URL.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to validate feed. Please check the URL.');
       console.error(err);
     } finally {
       setIsValidating(false);
     }
   };
 
-  const handleAddCategory = (category: Category) => {
-    if (targetColumn === 'new') {
-      // Create new column with all category feeds
-      addColumn({
-        id: crypto.randomUUID(),
-        title: category.name,
-        type: 'category',
-        sources: category.feeds.map((feed) => ({
-          ...feed,
-          id: generateId(),
-        })),
-        settings: {
-          refreshInterval: defaultRefreshInterval,
-          viewMode: defaultViewMode,
-        },
-        width: DEFAULT_COLUMN_WIDTH,
-      });
-    } else {
-      // Add all feeds from category to existing column
-      category.feeds.forEach((feed) => {
-        addFeedToColumn(targetColumn, {
-          ...feed,
-          id: generateId(),
-        });
-      });
+  const handleAddCategory = async (category: Category) => {
+    try {
+      const feeds = category.feeds.map((feed) => buildFeed(feed.url, feed.title));
+
+      if (targetColumn === 'new') {
+        applyDeckState(await createColumnRequest(
+          buildColumnPayload(generateId(), category.name, 'category', feeds)
+        ));
+      } else {
+        const column = requireTargetColumn();
+        applyDeckState(await updateColumnRequest(targetColumn, {
+          sources: [...column.sources, ...feeds],
+        }));
+      }
+
+      setTargetColumn('new');
+      onClose();
+    } catch (error) {
+      console.error(error);
     }
-    setTargetColumn('new');
-    onClose();
   };
 
-  // OPML handlers
   const handleOPMLFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -163,89 +184,79 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
     }
   };
 
-  const handleImportOPML = () => {
+  const handleImportOPML = async () => {
     if (opmlFeeds.length === 0) return;
 
     setIsImporting(true);
 
-    if (targetColumn === 'new') {
-      addColumn({
-        id: crypto.randomUUID(),
-        title: 'Imported Feeds',
-        type: 'unified',
-        sources: opmlFeeds.map((feed) => ({
-          id: generateId(),
-          url: feed.url,
-          title: feed.title,
-        })),
-        settings: {
-          refreshInterval: defaultRefreshInterval,
-          viewMode: defaultViewMode,
-        },
-        width: DEFAULT_COLUMN_WIDTH,
-      });
-    } else {
-      opmlFeeds.forEach((feed) => {
-        addFeedToColumn(targetColumn, {
-          id: generateId(),
-          url: feed.url,
-          title: feed.title,
-        });
-      });
-    }
+    try {
+      const sources = opmlFeeds.map((feed) => buildFeed(feed.url, feed.title));
 
-    setOpmlFeeds([]);
-    setOpmlError(null);
-    setTargetColumn('new');
-    onClose();
+      if (targetColumn === 'new') {
+        applyDeckState(await createColumnRequest(
+          buildColumnPayload(generateId(), 'Imported Feeds', 'unified', sources)
+        ));
+      } else {
+        const column = requireTargetColumn();
+        applyDeckState(await updateColumnRequest(targetColumn, {
+          sources: [...column.sources, ...sources],
+        }));
+      }
+
+      setOpmlFeeds([]);
+      setOpmlError(null);
+      setTargetColumn('new');
+      onClose();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
-  const handleImportAsColumns = () => {
+  const handleImportAsColumns = async () => {
     if (opmlFeeds.length === 0) return;
 
     setIsImporting(true);
 
-    const byCategory = new Map<string, OPMLFeed[]>();
-    opmlFeeds.forEach((feed) => {
-      const cat = feed.category || 'Imported';
-      if (!byCategory.has(cat)) byCategory.set(cat, []);
-      byCategory.get(cat)!.push(feed);
-    });
-
-    byCategory.forEach((feeds, category) => {
-      addColumn({
-        id: crypto.randomUUID(),
-        title: category,
-        type: 'unified',
-        sources: feeds.map((feed) => ({
-          id: generateId(),
-          url: feed.url,
-          title: feed.title,
-        })),
-        settings: {
-          refreshInterval: defaultRefreshInterval,
-          viewMode: defaultViewMode,
-        },
-        width: DEFAULT_COLUMN_WIDTH,
+    try {
+      const byCategory = new Map<string, OPMLFeed[]>();
+      opmlFeeds.forEach((feed) => {
+        const category = feed.category || 'Imported';
+        if (!byCategory.has(category)) byCategory.set(category, []);
+        byCategory.get(category)!.push(feed);
       });
-    });
 
-    setOpmlFeeds([]);
-    setOpmlError(null);
-    onClose();
+      for (const [category, feeds] of byCategory.entries()) {
+        await createColumnRequest(
+          buildColumnPayload(
+            generateId(),
+            category,
+            'unified',
+            feeds.map((feed) => buildFeed(feed.url, feed.title))
+          )
+        );
+      }
+
+      applyDeckState(await fetchDeckState());
+      setOpmlFeeds([]);
+      setOpmlError(null);
+      onClose();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      {/* Modal */}
       <div className="relative bg-background-secondary border border-border rounded-xl w-full max-w-lg mx-4 shadow-2xl max-h-[85vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
           <h2 className="text-lg font-semibold">Add Feed</h2>
           <button
@@ -256,7 +267,6 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
           </button>
         </div>
 
-        {/* Target Column Selection */}
         <div className="px-4 py-3 border-b border-border bg-background-tertiary/50 flex-shrink-0">
           <label className="flex items-center gap-2 text-sm font-medium mb-2">
             <Columns className="w-4 h-4" />
@@ -292,7 +302,6 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="flex border-b border-border flex-shrink-0">
           <button
             onClick={() => setActiveTab('categories')}
@@ -332,14 +341,13 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-4 flex-1 overflow-y-auto">
           {activeTab === 'categories' && (
             <div className="grid grid-cols-2 gap-3">
               {categories.map((category) => (
                 <button
                   key={category.id}
-                  onClick={() => handleAddCategory(category)}
+                  onClick={() => void handleAddCategory(category)}
                   className="flex flex-col items-start p-3 rounded-lg border border-border hover:border-accent hover:bg-background-tertiary transition-all text-left group"
                 >
                   <span className="text-2xl mb-2">{category.icon}</span>
@@ -370,7 +378,7 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
                   placeholder="https://example.com/feed.xml"
                   className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground placeholder-foreground-secondary focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleAddCustomFeed();
+                    if (e.key === 'Enter') void handleAddCustomFeed();
                   }}
                 />
                 {error && (
@@ -379,7 +387,7 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
               </div>
 
               <button
-                onClick={handleAddCustomFeed}
+                onClick={() => void handleAddCustomFeed()}
                 disabled={isValidating || !url.trim()}
                 className="w-full py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
@@ -396,10 +404,14 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
                 )}
               </button>
 
-              {/* Saved Feeds Section */}
               {savedFeeds.length > 0 && (
                 <div className="mt-6 pt-6 border-t border-border">
-                  <h3 className="text-sm font-medium mb-3">Saved Feeds</h3>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <h3 className="text-sm font-medium">Saved Feeds</h3>
+                    <a href={getOpmlExportUrl()} className="text-xs text-accent hover:underline">
+                      Export OPML
+                    </a>
+                  </div>
                   <div className="space-y-2 max-h-[200px] overflow-y-auto">
                     {savedFeeds.map((feed) => (
                       <div
@@ -414,7 +426,13 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
                           <div className="text-xs text-foreground-secondary truncate">{feed.url}</div>
                         </button>
                         <button
-                          onClick={() => removeSavedFeed(feed.id)}
+                          onClick={async () => {
+                            try {
+                              applyDeckState(await deleteSavedFeedRequest(feed.id));
+                            } catch (error) {
+                              console.error(error);
+                            }
+                          }}
                           className="p-1.5 text-foreground-secondary hover:text-error hover:bg-background-secondary rounded opacity-0 group-hover:opacity-100 transition-opacity"
                           title="Delete saved feed"
                         >
@@ -505,7 +523,7 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
 
                   <div className="flex gap-2">
                     <button
-                      onClick={handleImportOPML}
+                      onClick={() => void handleImportOPML()}
                       disabled={isImporting}
                       className="flex-1 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
                     >
@@ -518,7 +536,7 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
                     </button>
                     {targetColumn === 'new' && (
                       <button
-                        onClick={handleImportAsColumns}
+                        onClick={() => void handleImportAsColumns()}
                         disabled={isImporting}
                         className="flex-1 py-2.5 border-2 border-accent hover:bg-accent-hover hover:text-white disabled:opacity-50 text-accent font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
                       >

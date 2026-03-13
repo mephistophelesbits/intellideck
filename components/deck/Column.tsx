@@ -7,9 +7,10 @@ import { Column as ColumnType, Article } from '@/lib/types';
 import { useDeckStore, DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH } from '@/lib/store';
 import { useArticlesStore } from '@/lib/articles-store';
 import { useSettingsStore, ArticleAgeFilter } from '@/lib/settings-store';
+import { deleteColumnRequest, updateColumnRequest } from '@/lib/deck-client';
 import { ArticleCard } from './ArticleCard';
 import { cn } from '@/lib/utils';
-import { DraggableSyntheticListeners } from '@dnd-kit/core';
+import { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 
 // Normalize title for comparison (remove punctuation, lowercase, trim)
 function normalizeTitle(title: string): string {
@@ -84,31 +85,35 @@ interface ColumnProps {
   onArticleClick: (article: Article) => void;
   selectedArticleId: string | null;
   refreshTrigger: number;
-  dragHandleProps?: any;
+  dragHandleProps?: DraggableAttributes;
   dragListeners?: DraggableSyntheticListeners;
 }
 
 export function Column({ column, onArticleClick, selectedArticleId, refreshTrigger, dragHandleProps, dragListeners }: ColumnProps) {
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cachedArticles = useArticlesStore((state) => state.articlesByColumn.get(column.id));
+  const initialCachedArticles = useRef(cachedArticles);
+  const [articles, setArticles] = useState<Article[]>(cachedArticles ?? []);
+  const [isLoading, setIsLoading] = useState(column.sources.length > 0 && !cachedArticles?.length);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
-
-
-
-  const removeColumn = useDeckStore((state) => state.removeColumn);
+  const setColumns = useDeckStore((state) => state.setColumns);
+  const setSavedFeeds = useDeckStore((state) => state.setSavedFeeds);
   const setColumnWidth = useDeckStore((state) => state.setColumnWidth);
   const setColumnArticles = useArticlesStore((state) => state.setColumnArticles);
-  const removeColumnArticles = useArticlesStore((state) => state.removeColumnArticles);
   const articleAgeFilter = useSettingsStore((state) => state.articleAgeFilter);
 
   const columnRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
+  const resizedWidthRef = useRef(column.width || DEFAULT_COLUMN_WIDTH);
 
   // Use fallback width if column.width is undefined
   const columnWidth = column.width || DEFAULT_COLUMN_WIDTH;
+  const applyDeckState = useCallback((deckState: { columns: ColumnType[]; savedFeeds: { id: string; url: string; title: string }[] }) => {
+    setColumns(deckState.columns);
+    setSavedFeeds(deckState.savedFeeds);
+  }, [setColumns, setSavedFeeds]);
 
   const fetchFeeds = useCallback(async () => {
     if (column.sources.length === 0) {
@@ -155,22 +160,22 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
     }
   }, [column.sources, column.id, setColumnArticles]);
 
+  // Initial load / manual refresh trigger
   useEffect(() => {
-    fetchFeeds();
+    if (initialCachedArticles.current && initialCachedArticles.current.length > 0 && refreshTrigger === 0) {
+      setArticles(initialCachedArticles.current);
+      setIsLoading(false);
+    } else {
+      void fetchFeeds();
+    }
+  }, [fetchFeeds, refreshTrigger]);
 
-    // Set up auto-refresh
+  // Auto-refresh interval — runs independently so it isn't reset by fetch results
+  useEffect(() => {
     const intervalMs = column.settings.refreshInterval * 60 * 1000;
     const interval = setInterval(fetchFeeds, intervalMs);
-
     return () => clearInterval(interval);
-  }, [fetchFeeds, column.settings.refreshInterval, refreshTrigger]);
-
-  // Cleanup articles from store when column is unmounted
-  useEffect(() => {
-    return () => {
-      removeColumnArticles(column.id);
-    };
-  }, [column.id, removeColumnArticles]);
+  }, [fetchFeeds, column.settings.refreshInterval]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -191,6 +196,7 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
   const handleResizeMove = useCallback((e: MouseEvent) => {
     const diff = e.clientX - startXRef.current;
     const newWidth = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, startWidthRef.current + diff));
+    resizedWidthRef.current = newWidth;
     setColumnWidth(column.id, newWidth);
   }, [column.id, setColumnWidth]);
 
@@ -198,7 +204,20 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
     setIsResizing(false);
     document.removeEventListener('mousemove', handleResizeMove);
     document.removeEventListener('mouseup', handleResizeEnd);
-  }, [handleResizeMove]);
+    void updateColumnRequest(column.id, { width: resizedWidthRef.current })
+      .then(applyDeckState)
+      .catch((resizeError) => {
+        console.error('Failed to persist column width:', resizeError);
+      });
+  }, [applyDeckState, column.id, handleResizeMove]);
+
+  const handleRemoveColumn = async () => {
+    try {
+      applyDeckState(await deleteColumnRequest(column.id));
+    } catch (removeError) {
+      console.error('Failed to remove column:', removeError);
+    }
+  };
 
   return (
     <div
@@ -213,17 +232,17 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
       }}
     >
       {/* Column Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-background-tertiary flex-shrink-0 group/header">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-background-tertiary flex-shrink-0 group/header relative z-20">
+        <div className="flex items-center min-w-0 flex-1">
           <div
             {...dragHandleProps}
             {...dragListeners}
-            className="cursor-grab active:cursor-grabbing p-1 -ml-1 text-foreground-secondary/50 hover:text-foreground hover:bg-background-secondary rounded opacity-0 group-hover/header:opacity-100 transition-opacity"
+            className="cursor-grab active:cursor-grabbing p-2 -ml-2 mr-1 text-foreground-secondary/50 hover:text-foreground hover:bg-background-secondary rounded opacity-0 group-hover/header:opacity-100 transition-opacity touch-none flex-shrink-0"
           >
-            <GripHorizontal className="w-4 h-4" />
+            <GripHorizontal className="w-5 h-5" />
           </div>
           <h2 className="font-bold text-sm truncate">{column.title}</h2>
-          <span className="text-xs text-foreground-secondary">
+          <span className="text-xs text-foreground-secondary ml-2 whitespace-nowrap">
             {column.sources.length} {column.sources.length === 1 ? 'feed' : 'feeds'}
           </span>
         </div>
@@ -238,7 +257,7 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
           </button>
           <ColumnSettingsMenu column={column} />
           <button
-            onClick={() => removeColumn(column.id)}
+            onClick={() => void handleRemoveColumn()}
             className="p-1.5 hover:bg-background-secondary rounded transition-colors text-foreground-secondary hover:text-error"
             title="Remove column"
           >

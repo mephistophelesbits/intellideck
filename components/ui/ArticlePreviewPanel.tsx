@@ -267,7 +267,7 @@ export function ArticlePreviewPanel({ article, onClose }: ArticlePreviewPanelPro
         const fallbackUrl = extractFirstUrl(contentToSearch, article.link);
 
         if (fallbackUrl) {
-          console.log('Trying fallback URL:', fallbackUrl);
+
           const fallbackResult = await tryFetchUrl(fallbackUrl);
           if (fallbackResult.success) {
             result = fallbackResult;
@@ -319,7 +319,7 @@ export function ArticlePreviewPanel({ article, onClose }: ArticlePreviewPanelPro
             const fallbackUrl = extractFirstUrl(contentToSearch, article.link);
 
             if (fallbackUrl) {
-              console.log('Trying fallback URL for summary:', fallbackUrl);
+
               const fallbackResponse = await fetch('/api/scrape', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1035,7 +1035,7 @@ export function ArticlePreviewPanel({ article, onClose }: ArticlePreviewPanelPro
           href={article.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="w-full py-3 bg-accent hover:bg-accent-hover text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+          className="w-full py-3 bg-accent hover:bg-accent-hover text-[color:var(--accent-foreground)] font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
         >
           <ExternalLink className="w-5 h-5" />
           Read Original Article

@@ -5,11 +5,13 @@ A modern, multi-column RSS reader with local AI integration for summarizing, sen
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%F0%9F%A4%9D-yellow)](https://buymeacoffee.com/kianfongl)
 [![Docker Image](https://img.shields.io/badge/Docker-kianfong%2Frssdeck-blue)](https://hub.docker.com/r/kianfong/rssdeck)
 
-![RSS Deck Screenshot](docs/screenshot.png)
+![RSS Deck Dark Theme](docs/dark_dashboard.png)
+<br/>
+![RSS Deck Light Theme](docs/light_dashboard.png)
 
-## ✨ Features
+## ✨ v2.0 Features
 
-📰 **Multi-Column Layout** - TweetDeck-style interface for managing multiple RSS feeds side-by-side
+📰 **Clean Top Navigation Interface** - Overhauled v2.0 UI with a frosted glass top navigation bar and dynamic multi-column feeds
 
 🤖 **Local AI Integration** - Powered by Ollama for privacy-first AI features:
   - Instant article summarization
@@ -22,11 +24,9 @@ A modern, multi-column RSS reader with local AI integration for summarizing, sen
 
 📖 **Inline Reading Column** - Click any article to open it as a dedicated reading column right next to the feed, without covering other content
 
-🎨 **Beautiful Themes** - Multiple color schemes including:
-  - Cyberpunk Neon
-  - Dark Mode
-  - Light Mode
-  - Sepia (ebook style)
+🎨 **Refined Aesthetic Themes** - Simplified, beautiful design modes:
+  - Stitch 1 "Reader Studio" (Dark Mode)
+  - Stitch 2 "Feed Dashboard" (Light Mode)
 
 📱 **Responsive Design** - Works on desktop and mobile
 
@@ -48,10 +48,10 @@ cd rssdeck
 # Install dependencies
 npm install
 
-# Start development server
+# Start development server (often runs on port 3000 or 3001)
 npm run dev
 
-# Open http://localhost:3000
+# Open http://localhost:3000 (or http://localhost:3001 if 3000 is taken)
 ```
 
 ### Docker Deployment (Pre-built Image)
@@ -145,6 +145,12 @@ rss-deck/
 - **Deployment**: Docker
 
 ## 📋 Changelog
+
+### v2.0.0 (March 2026)
+- **UI Architecture Overhaul** - Replaced the vertical side rail navigation with a clean, unified top navigation bar across all views (Dashboard, Intelligence, Briefings, Bookmarks).
+- **Stitch Design System** - Implemented the premium "Stitch" design logic, prioritizing deep contrasts for Dark Mode and vibrant `#1152d4` accents for Light Mode.
+- **Improved Scrollbars** - Enlarged tracking thumbs and visible deck horizontals to ensure usability is as excellent as the aesthetics.
+- **Glassmorphism Components** - Introduced transparent, backdrop-blurred cards for overlays and article panels yielding a much more modern app footprint.
 
 ### v1.4.0 (Feb 2026)
 - **Similar Posts** - Added a zero-API-cost client-side text similarity engine. Reading any article will instantly display related articles from your feeds at the bottom.

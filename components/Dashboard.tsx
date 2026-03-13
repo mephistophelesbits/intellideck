@@ -1,34 +1,27 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Sidebar } from '@/components/ui/Sidebar';
 import { DeckContainer } from '@/components/deck/DeckContainer';
-import { AddFeedModal } from '@/components/ui/AddFeedModal';
-import { SettingsModal } from '@/components/ui/SettingsModal';
-import { StockTicker } from '@/components/ui/StockTicker';
-import { ThemeProvider } from '@/components/ThemeProvider';
-import { StoreHydration } from '@/components/StoreHydration';
-import { UrlPreviewProvider } from '@/components/ui/UrlPreviewPopup';
-import { BriefingManager } from '@/components/BriefingManager';
+import { AppChrome } from '@/components/AppChrome';
 import { useArticlesStore } from '@/lib/articles-store';
 import { Article } from '@/lib/types';
 
 export function Dashboard() {
-    const [isAddFeedModalOpen, setIsAddFeedModalOpen] = useState(false);
-    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
     const [refreshAllTrigger, setRefreshAllTrigger] = useState(0);
 
     const articlesByColumn = useArticlesStore((state) => state.articlesByColumn);
     const articleToColumn = useArticlesStore((state) => state.articleToColumn);
 
-    const openAddFeedModal = () => setIsAddFeedModalOpen(true);
-    const closeAddFeedModal = () => setIsAddFeedModalOpen(false);
-
-    const openSettingsModal = () => setIsSettingsModalOpen(true);
-    const closeSettingsModal = () => setIsSettingsModalOpen(false);
-
-    const handleRefreshAll = () => {
+    const handleRefreshAll = async () => {
+        const response = await fetch('/api/intelligence/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to refresh saved feeds');
+        }
         setRefreshAllTrigger((prev) => prev + 1);
     };
 
@@ -43,8 +36,7 @@ export function Dashboard() {
     // Keyboard navigation for articles
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Don't handle if a modal is open or no article is selected
-            if (isAddFeedModalOpen || isSettingsModalOpen) return;
+            // Don't handle if no article is selected
             if (!selectedArticle) return;
 
             // Don't handle if user is typing in an input
@@ -89,40 +81,22 @@ export function Dashboard() {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [selectedArticle, articlesByColumn, articleToColumn, isAddFeedModalOpen, isSettingsModalOpen]);
+    }, [selectedArticle, articlesByColumn, articleToColumn]);
 
     return (
-        <ThemeProvider>
-            <StoreHydration>
-                <UrlPreviewProvider>
-                    <BriefingManager />
-                    <div className="flex flex-col h-screen bg-background overflow-hidden">
-                        {/* Stock Ticker Bar */}
-                        <StockTicker />
-
-                        {/* Main Content */}
-                        <main className="flex flex-1 overflow-hidden">
-                            <Sidebar
-                                onAddColumn={openAddFeedModal}
-                                onOpenSettings={openSettingsModal}
-                                onRefreshAll={handleRefreshAll}
-                            />
-                            {/* Main content area */}
-                            <div className="flex-1 flex overflow-hidden relative">
-                                <DeckContainer
-                                    onAddColumn={openAddFeedModal}
-                                    onArticleClick={handleArticleClick}
-                                    onCloseArticle={closeArticlePreview}
-                                    selectedArticle={selectedArticle}
-                                    refreshTrigger={refreshAllTrigger}
-                                />
-                            </div>
-                            <AddFeedModal isOpen={isAddFeedModalOpen} onClose={closeAddFeedModal} />
-                            <SettingsModal isOpen={isSettingsModalOpen} onClose={closeSettingsModal} />
-                        </main>
-                    </div>
-                </UrlPreviewProvider>
-            </StoreHydration>
-        </ThemeProvider>
+        <AppChrome
+            onRefreshAll={handleRefreshAll}
+            renderContent={({ openAddFeedModal }) => (
+                <div className="absolute inset-0 overflow-hidden">
+                    <DeckContainer
+                        onAddColumn={openAddFeedModal}
+                        onArticleClick={handleArticleClick}
+                        onCloseArticle={closeArticlePreview}
+                        selectedArticle={selectedArticle}
+                        refreshTrigger={refreshAllTrigger}
+                    />
+                </div>
+            )}
+        />
     );
 }

@@ -18,10 +18,10 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-import { useDeckStore, DEFAULT_COLUMN_WIDTH } from '@/lib/store';
-import { useSettingsStore } from '@/lib/settings-store';
+import { useDeckStore } from '@/lib/store';
 import { useArticlesStore } from '@/lib/articles-store';
-import { Article } from '@/lib/types';
+import { reorderColumnsRequest } from '@/lib/deck-client';
+import { Article, Column as DeckColumn } from '@/lib/types';
 import { Column } from './Column';
 import { ReadingColumn } from './ReadingColumn';
 import { Plus } from 'lucide-react';
@@ -36,7 +36,7 @@ interface DeckContainerProps {
 }
 
 interface SortableColumnProps {
-  column: any; // Type from store
+  column: DeckColumn;
   onArticleClick: (article: Article) => void;
   selectedArticleId: string | null;
   refreshTrigger: number;
@@ -76,6 +76,8 @@ function SortableColumn({ column, onArticleClick, selectedArticleId, refreshTrig
 export function DeckContainer({ onAddColumn, onArticleClick, onCloseArticle, selectedArticle, refreshTrigger }: DeckContainerProps) {
   const columns = useDeckStore((state) => state.columns);
   const reorderColumns = useDeckStore((state) => state.reorderColumns);
+  const setColumns = useDeckStore((state) => state.setColumns);
+  const setSavedFeeds = useDeckStore((state) => state.setSavedFeeds);
   const articleToColumn = useArticlesStore((state) => state.articleToColumn);
 
   const sourceColumnId = selectedArticle ? articleToColumn.get(selectedArticle.id) : null;
@@ -92,7 +94,7 @@ export function DeckContainer({ onAddColumn, onArticleClick, onCloseArticle, sel
     })
   );
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
     if (active.id !== over?.id) {
@@ -101,6 +103,13 @@ export function DeckContainer({ onAddColumn, onArticleClick, onCloseArticle, sel
 
       const newOrder = arrayMove(columns, oldIndex, newIndex).map(c => c.id);
       reorderColumns(newOrder);
+      try {
+        const deckState = await reorderColumnsRequest(newOrder);
+        setColumns(deckState.columns);
+        setSavedFeeds(deckState.savedFeeds);
+      } catch (error) {
+        console.error('Failed to reorder columns:', error);
+      }
     }
   };
 
@@ -110,7 +119,7 @@ export function DeckContainer({ onAddColumn, onArticleClick, onCloseArticle, sel
 
   return (
     <div
-      className="flex-1 h-full overflow-x-auto overflow-y-hidden deck-scroll"
+      className="h-full w-full overflow-x-auto overflow-y-hidden deck-scroll"
       style={containerStyle}
     >
       <div className="flex h-full">

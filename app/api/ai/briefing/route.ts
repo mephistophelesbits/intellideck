@@ -21,23 +21,14 @@ export async function POST(req: NextRequest) {
     const {
       articles,
       aiSettings,
-      telegramSettings,
-      briefingSettings
+      telegramSettings
     } = await req.json();
 
     // Generate news briefing
     let briefing = '';
     if (articles && articles.length > 0) {
       const articlesText = articles.map((a: any, i: number) => `${i + 1}. ${a.title}`).join('\n');
-      let prompt = '';
-
-      if (briefingSettings?.customPrompt && briefingSettings.customPrompt.trim().length > 0) {
-        prompt = briefingSettings.customPrompt.replace('{{articles}}', articlesText);
-        if (!prompt.includes(articlesText)) {
-          prompt += `\n\nArticles:\n${articlesText}`;
-        }
-      } else {
-        prompt = `You are a News Intelligence Officer. Analyze the following headlines and provide a concise intelligence briefing.
+      const prompt = `You are a News Intelligence Officer. Analyze the following headlines and provide a concise intelligence briefing.
 
 1. Select the 3-5 most important or time-sensitive developments as "STRATEGIC HEADLINES".
 2. Group the rest into key topics and provide a "TOPIC SUMMARY" for each.
@@ -53,7 +44,6 @@ Headlines:
 ${articlesText}
 
 Briefing:`;
-      }
 
       const result = await generateText(
         aiSettings?.provider || 'ollama',

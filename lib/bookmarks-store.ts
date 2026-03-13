@@ -1,50 +1,68 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import { Article } from './types';
 
 interface BookmarksState {
   bookmarks: Article[];
+  hydrateBookmarks: (bookmarks: Article[]) => void;
   addBookmark: (article: Article) => void;
   removeBookmark: (articleId: string) => void;
   isBookmarked: (articleId: string) => boolean;
   toggleBookmark: (article: Article) => void;
 }
 
-export const useBookmarksStore = create<BookmarksState>()(
-  persist(
-    (set, get) => ({
-      bookmarks: [],
+function persistBookmark(article: Article) {
+  if (typeof window === 'undefined') return;
+  void fetch('/api/bookmarks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(article),
+  }).catch((error) => {
+    console.error('Failed to save bookmark:', error);
+  });
+}
 
-      addBookmark: (article) =>
-        set((state) => {
-          if (state.bookmarks.some((b) => b.id === article.id)) {
-            return state;
-          }
-          return {
-            bookmarks: [{ ...article, bookmarked: true }, ...state.bookmarks],
-          };
-        }),
+function deletePersistedBookmark(articleId: string) {
+  if (typeof window === 'undefined') return;
+  void fetch(`/api/bookmarks?articleId=${encodeURIComponent(articleId)}`, {
+    method: 'DELETE',
+  }).catch((error) => {
+    console.error('Failed to delete bookmark:', error);
+  });
+}
 
-      removeBookmark: (articleId) =>
-        set((state) => ({
-          bookmarks: state.bookmarks.filter((b) => b.id !== articleId),
-        })),
+export const useBookmarksStore = create<BookmarksState>()((set, get) => ({
+  bookmarks: [],
+  hydrateBookmarks: (bookmarks) => set({ bookmarks }),
 
-      isBookmarked: (articleId) => {
-        return get().bookmarks.some((b) => b.id === articleId);
-      },
-
-      toggleBookmark: (article) => {
-        const state = get();
-        if (state.bookmarks.some((b) => b.id === article.id)) {
-          state.removeBookmark(article.id);
-        } else {
-          state.addBookmark(article);
-        }
-      },
+  addBookmark: (article) =>
+    set((state) => {
+      if (state.bookmarks.some((bookmark) => bookmark.id === article.id)) {
+        return state;
+      }
+      persistBookmark(article);
+      return {
+        bookmarks: [{ ...article, bookmarked: true }, ...state.bookmarks],
+      };
     }),
-    {
-      name: 'rss-deck-bookmarks',
+
+  removeBookmark: (articleId) =>
+    set((state) => {
+      deletePersistedBookmark(articleId);
+      return {
+        bookmarks: state.bookmarks.filter((bookmark) => bookmark.id !== articleId),
+      };
+    }),
+
+  isBookmarked: (articleId) => {
+    return get().bookmarks.some((bookmark) => bookmark.id === articleId);
+  },
+
+  toggleBookmark: (article) => {
+    const state = get();
+    if (state.bookmarks.some((bookmark) => bookmark.id === article.id)) {
+      state.removeBookmark(article.id);
+    } else {
+      state.addBookmark(article);
     }
-  )
-);
+  },
+}));
