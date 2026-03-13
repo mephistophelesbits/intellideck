@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>RSS Deck - Exported Feeds</title>
+  </head>
+  <body>
+    <outline text="BBC News" title="BBC News" type="rss" xmlUrl="http://feeds.bbci.co.uk/news/rss.xml" htmlUrl=""/>
+    <outline text="Reuters" title="Reuters" type="rss" xmlUrl="https://www.reutersagency.com/feed/" htmlUrl=""/>
+    <outline text="The Straits Times World News" title="The Straits Times World News" type="rss" xmlUrl="https://www.straitstimes.com/news/world/rss.xml" htmlUrl=""/>
+    <outline text="The Straits Times World News" title="The Straits Times World News" type="rss" xmlUrl="https://www.straitstimes.com/news/business/rss.xml" htmlUrl=""/>
+    <outline text="The Star : News Feed" title="The Star : News Feed" type="rss" xmlUrl="https://www.thestar.com.my/rss/News/World" htmlUrl=""/>
+    <outline text="NYT > World News" title="NYT > World News" type="rss" xmlUrl="https://rss.nytimes.com/services/xml/rss/nyt/World.xml" htmlUrl=""/>
+    <outline text="South China Morning Post" title="South China Morning Post" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=6150&type=full" htmlUrl=""/>
+    <outline text="Metro (UK)" title="Metro (UK)" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=9xvz&type=full" htmlUrl=""/>
+    <outline text="Hacker News" title="Hacker News" type="rss" xmlUrl="https://hnrss.org/frontpage" htmlUrl=""/>
+    <outline text="The Verge" title="The Verge" type="rss" xmlUrl="https://www.theverge.com/rss/index.xml" htmlUrl=""/>
+    <outline text="NYT > Technology" title="NYT > Technology" type="rss" xmlUrl="https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml" htmlUrl=""/>
+    <outline text="NYT > Technology > Personal Tech" title="NYT > Technology > Personal Tech" type="rss" xmlUrl="https://rss.nytimes.com/services/xml/rss/nyt/PersonalTech.xml" htmlUrl=""/>
+    <outline text="Feed: Artificial Intelligence Latest" title="Feed: Artificial Intelligence Latest" type="rss" xmlUrl="https://www.wired.com/feed/tag/ai/latest/rss" htmlUrl=""/>
+    <outline text="Ideas Latest" title="Ideas Latest" type="rss" xmlUrl="https://www.wired.com/feed/category/ideas/latest/rss" htmlUrl=""/>
+    <outline text="Gizmodo" title="Gizmodo" type="rss" xmlUrl="https://gizmodo.com/feed" htmlUrl=""/>
+    <outline text="Engadget is a web magazine with obsessive daily coverage of everything new in gadgets and consumer electronics" title="Engadget is a web magazine with obsessive daily coverage of everything new in gadgets and consumer electronics" type="rss" xmlUrl="https://www.engadget.com/rss.xml" htmlUrl=""/>
+    <outline text="The Real News Network" title="The Real News Network" type="rss" xmlUrl="https://therealnews.com/feed" htmlUrl=""/>
+    <outline text="BBC 中文" title="BBC 中文" type="rss" xmlUrl="https://www.bbc.com/zhongwen/simp/index.xml" htmlUrl=""/>
+    <outline text="Lianhe Zaobao" title="Lianhe Zaobao" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=5203" htmlUrl=""/>
+    <outline text="China Times" title="China Times" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=59ef&type=full" htmlUrl=""/>
+    <outline text="Economic Daily News" title="Economic Daily News" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=59cu&type=full" htmlUrl=""/>
+    <outline text="Business China" title="Business China" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=59c6&type=full" htmlUrl=""/>
+    <outline text="China Economist" title="China Economist" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=5928&type=full" htmlUrl=""/>
+    <outline text="Harvard Business Review (China)" title="Harvard Business Review (China)" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=59a7&type=full" htmlUrl=""/>
+    <outline text="36Kr" title="36Kr" type="rss" xmlUrl="https://36kr.com/feed" htmlUrl=""/>
+    <outline text="少数派" title="少数派" type="rss" xmlUrl="https://sspai.com/feed" htmlUrl=""/>
+    <outline text="NYT > Business" title="NYT > Business" type="rss" xmlUrl="https://rss.nytimes.com/services/xml/rss/nyt/Business.xml" htmlUrl=""/>
+    <outline text="Business Latest" title="Business Latest" type="rss" xmlUrl="https://www.wired.com/feed/category/business/latest/rss" htmlUrl=""/>
+    <outline text="The Edge Singapore" title="The Edge Singapore" type="rss" xmlUrl="https://www.pressdisplay.com/pressdisplay/services/rss.ashx?cid=9wud" htmlUrl=""/>
+    <outline text="Release notes from openclaw" title="Release notes from openclaw" type="rss" xmlUrl="https://github.com/openclaw/openclaw/releases.atom" htmlUrl=""/>
+  </body>
+</opml>

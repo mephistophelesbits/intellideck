@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>RSS Deck - Nova's Feeds</title>
+  </head>
+  <body>
+    <outline text="AI and Tech">
+      <outline text="OpenAI" title="OpenAI Blog" type="rss" xmlUrl="https://openai.com/news/rss.xml" htmlUrl="https://openai.com/blog"/>
+      <outline text="Anthropic" title="Anthropic Blog" type="rss" xmlUrl="https://www.anthropic.com/blog/rss.xml" htmlUrl="https://www.anthropic.com/blog"/>
+      <outline text="Hacker News" title="Hacker News" type="rss" xmlUrl="https://hnrss.org/frontpage" htmlUrl="https://news.ycombinator.com"/>
+      <outline text="TechCrunch" title="TechCrunch" type="rss" xmlUrl="https://techcrunch.com/feed/" htmlUrl="https://techcrunch.com"/>
+      <outline text="MIT Tech Review" title="MIT Technology Review" type="rss" xmlUrl="https://www.technologyreview.com/feed/" htmlUrl="https://www.technologyreview.com"/>
+      <outline text="Simon Willison" title="Simon Willison" type="rss" xmlUrl="https://simonwillison.net/atom/everything/" htmlUrl="https://simonwillison.net"/>
+    </outline>
+    <outline text="OpenSource and Dev">
+      <outline text="GitHub Changelog" title="GitHub Changelog" type="rss" xmlUrl="https://github.com/changelog.atom" htmlUrl="https://github.com/changelog"/>
+      <outline text="OpenClaw" title="OpenClaw GitHub" type="rss" xmlUrl="https://github.com/openclaw/openclaw/releases.atom" htmlUrl="https://github.com/openclaw/openclaw"/>
+    </outline>
+    <outline text="Business and Economy">
+      <outline text="Bloomberg" title="Bloomberg" type="rss" xmlUrl="https://feeds.bloomberg.com/markets/news.rss" htmlUrl="https://bloomberg.com"/>
+    </outline>
+  </body>
+</opml>

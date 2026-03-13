@@ -1,0 +1,3 @@
+This is an OPML version of the [HN Popularity Contest](https://refactoringenglish.com/tools/hn-popularity/) results for 2025, for importing into RSS feed readers.
+
+Plug: if you want to find content related to your interests from thousands of obscure blogs and noisy sources like HN Newest, check out [Scour](https://scour.ing). It's a free, personalized content feed I work on where you define your interests in your own words and it ranks content based on how closely related it is to those topics.
