@@ -953,7 +953,10 @@ export function IntelligenceDashboard() {
             <div className="rounded-2xl border border-border bg-background p-3 2xl:h-[440px]">
               <div className="text-xs uppercase tracking-[0.24em] text-foreground-secondary mb-3">Latest Snapshot</div>
               <div className="space-y-1.5 2xl:max-h-[388px] 2xl:overflow-y-auto pr-1">
-                {(overview?.trendSnapshots ?? []).map((snapshot) => (
+                {(() => {
+                  const snapshots = overview?.trendSnapshots ?? [];
+                  const maxSnapshotValue = Math.max(1, ...snapshots.map((s) => s.value));
+                  return snapshots.map((snapshot) => (
                   <div key={snapshot.label} className="space-y-1">
                     <div className="flex items-center justify-between gap-3 text-sm">
                       <button
@@ -980,11 +983,12 @@ export function IntelligenceDashboard() {
                     <div className="h-2 rounded-full bg-background-secondary overflow-hidden">
                       <div
                         className="h-full rounded-full bg-accent"
-                        style={{ width: `${Math.max(8, Math.min(100, snapshot.value * 10))}%` }}
+                        style={{ width: `${Math.max(4, (snapshot.value / maxSnapshotValue) * 100)}%` }}
                       />
                     </div>
                   </div>
-                ))}
+                  ));
+                })()}
               </div>
             </div>
             <TrendPanel
@@ -1170,11 +1174,29 @@ function TrendPanel({
   className?: string;
 }) {
   const width = 360;
-  const height = 180;
-  const padding = 24;
-  const chartWidth = width - padding * 2;
-  const chartHeight = height - padding * 2;
+  const height = 200;
+  const paddingTop = 12;
+  const paddingBottom = 28; // extra room for X-axis date labels
+  const paddingX = 24;
+  const chartWidth = width - paddingX * 2;
+  const chartHeight = height - paddingTop - paddingBottom;
   const maxValue = Math.max(1, ...series.flatMap((item) => item.values));
+
+  // Time-proportional X positioning
+  const dateTimestamps = dates.map((d) => new Date(d).getTime());
+  const minTs = dateTimestamps[0];
+  const maxTs = dateTimestamps[dateTimestamps.length - 1];
+  const tsRange = Math.max(1, maxTs - minTs);
+  const getX = (dateIndex: number) =>
+    dates.length === 1
+      ? paddingX + chartWidth / 2
+      : paddingX + ((dateTimestamps[dateIndex] - minTs) / tsRange) * chartWidth;
+
+  // Abbreviated date label e.g. "Mar 12"
+  const fmtDate = (d: string) => {
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
 
   return (
     <div className={`rounded-2xl border border-border bg-background p-3 ${className ?? ''} flex min-h-0 flex-col`}>
@@ -1183,18 +1205,23 @@ function TrendPanel({
         <p className="text-sm text-foreground-secondary">Not enough history yet.</p>
       ) : (
         <>
-          <svg viewBox={`0 0 ${width} ${height}`} className="h-[190px] w-full flex-shrink-0">
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className="h-[200px] w-full flex-shrink-0"
+            preserveAspectRatio="none"
+          >
             <rect width={width} height={height} fill="transparent" />
             {[0, 1, 2, 3].map((tick) => {
-              const y = padding + (chartHeight / 3) * tick;
+              const y = paddingTop + (chartHeight / 3) * tick;
               return (
                 <line
                   key={`grid-${tick}`}
-                  x1={padding}
-                  x2={width - padding}
+                  x1={paddingX}
+                  x2={width - paddingX}
                   y1={y}
                   y2={y}
-                  stroke="rgba(255,255,255,0.08)"
+                  stroke="currentColor"
+                  strokeOpacity="0.1"
                   strokeDasharray="4 6"
                 />
               );
@@ -1202,8 +1229,8 @@ function TrendPanel({
             {series.map((item, index) => {
               const color = BUBBLE_COLORS[index % BUBBLE_COLORS.length];
               const points = item.values.map((value, valueIndex) => {
-                const x = padding + (chartWidth / Math.max(1, dates.length - 1)) * valueIndex;
-                const y = height - padding - (value / maxValue) * chartHeight;
+                const x = getX(valueIndex);
+                const y = paddingTop + chartHeight - (value / maxValue) * chartHeight;
                 return `${x},${y}`;
               }).join(' ');
 
@@ -1218,11 +1245,31 @@ function TrendPanel({
                     strokeLinejoin="round"
                   />
                   {item.values.map((value, valueIndex) => {
-                    const x = padding + (chartWidth / Math.max(1, dates.length - 1)) * valueIndex;
-                    const y = height - padding - (value / maxValue) * chartHeight;
+                    const x = getX(valueIndex);
+                    const y = paddingTop + chartHeight - (value / maxValue) * chartHeight;
                     return <circle key={`${item.label}-${dates[valueIndex]}`} cx={x} cy={y} r="3.5" fill={color} />;
                   })}
                 </g>
+              );
+            })}
+            {/* X-axis date labels — show first, last, and any middle dates that have room */}
+            {dates.map((d, i) => {
+              const showLabel = i === 0 || i === dates.length - 1 || dates.length <= 5;
+              if (!showLabel) return null;
+              const x = getX(i);
+              const anchor = i === 0 ? 'start' : i === dates.length - 1 ? 'end' : 'middle';
+              return (
+                <text
+                  key={`label-${d}`}
+                  x={x}
+                  y={height - 6}
+                  textAnchor={anchor}
+                  fontSize="9"
+                  fill="currentColor"
+                  fillOpacity="0.45"
+                >
+                  {fmtDate(d)}
+                </text>
               );
             })}
           </svg>
