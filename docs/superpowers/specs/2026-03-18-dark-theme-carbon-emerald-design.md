@@ -57,15 +57,29 @@ All hardcoded `rgba(17, 82, 212, ...)` values in dark-mode scrollbar rules repla
 | `.dark .deck-scroll` thumb | `rgba(255,255,255,0.2)` | unchanged (neutral — keep) |
 | `.deck-scroll` thumb (light) | `rgba(17,82,212,0.3)` | unchanged (light mode — skip) |
 
-Only the dark-specific scrollbar overrides matter; most are already neutral white-rgba and need no change.
+All `.dark`-scoped scrollbar rules are already neutral white-rgba and require no changes. For completeness, here is the full accounting:
+
+| Rule | Value | Action |
+|---|---|---|
+| `.dark .column-scroll` thumb | `rgba(255,255,255,0.1)` | Unchanged |
+| `.dark .column-scroll` thumb:hover | `rgba(255,255,255,0.2)` | Unchanged |
+| `.dark .deck-scroll` thumb | `rgba(255,255,255,0.2)` | Unchanged |
+| `.dark .deck-scroll` thumb:hover | `rgba(255,255,255,0.3)` | Unchanged |
+
+Light-mode scrollbar rules (`rgba(17,82,212,...)` in `.column-scroll`, `.custom-scrollbar`, `.deck-scroll`) are out of scope and untouched.
 
 ---
 
 ## Glass Card Shadow
 
-| Rule | Old | New |
-|---|---|---|
-| `.glass-card` box-shadow | `rgba(17,82,212,0.05)` | `rgba(34,197,94,0.04)` |
+The base `.glass-card` rule (line 170) has `box-shadow: 0 8px 32px 0 rgba(17,82,212,0.05)` but this is **not** a dark-mode rule. The `.dark .glass-card` override already sets `box-shadow: none`, so no blue shadow renders in dark mode today.
+
+To add an optional subtle emerald glow in dark mode, the new shadow should be added to `.dark .glass-card`, not the base rule:
+
+| Rule | Action |
+|---|---|
+| `.glass-card` base box-shadow | **Unchanged** (light-mode rule, out of scope) |
+| `.dark .glass-card` box-shadow | Add `box-shadow: 0 8px 32px 0 rgba(34,197,94,0.04)` (replaces `none`) |
 
 ---
 
