@@ -163,7 +163,7 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-72 bg-background-tertiary border border-border rounded-lg shadow-xl z-50 overflow-hidden max-h-[70vh] overflow-y-auto">
+        <div className="absolute right-0 top-full mt-1 w-72 bg-background-secondary border border-border rounded-lg shadow-xl z-50 overflow-hidden max-h-[70vh] overflow-y-auto">
           {/* Rename Section */}
           <div className="p-2 border-b border-border">
             {isRenaming ? (
