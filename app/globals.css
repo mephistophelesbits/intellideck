@@ -22,23 +22,23 @@
   --warning: #f59e0b;
 }
 
-/* Reader Studio - Dark Theme (Stitch 1) */
+/* Reader Studio - Dark Theme (Carbon + Emerald) */
 .dark {
-  --background: #0a0c12; /* Very Dark Blue */
-  --background-secondary: #161b2a; /* Surface Dark */
-  --background-tertiary: rgba(22, 27, 42, 0.7);
+  --background: #0d0d0d; /* Pure black */
+  --background-secondary: #141414; /* Dark grey surface */
+  --background-tertiary: rgba(20, 20, 20, 0.7);
 
-  --foreground: #f1f5f9; /* Slate 100 */
-  --foreground-secondary: #94a3b8; /* Slate 400 */
+  --foreground: #f1f5f9; /* Slate 100 — unchanged */
+  --foreground-secondary: #9ca3af; /* Neutral Grey 400 */
 
-  --accent: #1152d4; /* Primary Blue */
-  --accent-hover: #1e5fe8;
-  --accent-light: rgba(17, 82, 212, 0.2);
+  --accent: #22c55e; /* Emerald 500 */
+  --accent-hover: #16a34a; /* Emerald 600 */
+  --accent-light: rgba(34, 197, 94, 0.15);
   --accent-foreground: #ffffff;
 
-  --border: #2d3446; /* Border Dark */
+  --border: #262626; /* Neutral dark grey */
 
-  --success: #10b981; /* Emerald 500 */
+  --success: #22c55e; /* Unified with accent */
   --error: #ef4444;
   --warning: #f59e0b;
 }
