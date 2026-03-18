@@ -92,6 +92,18 @@ Default: `'en'`
 
 Add `locale` to `SettingsSnapshot` so it survives across sessions.
 
+### Migration for Existing Users
+
+`hydrateSettings()` replaces the entire store state with the server snapshot. For existing users whose persisted settings predate this feature, `locale` will be absent. The hydration must merge with defaults so missing `locale` falls back to `'en'`. This is handled by spreading `getDefaultSettingsSnapshot()` before the persisted data in `hydrateSettings`.
+
+### Relationship with `aiSettings.language`
+
+`setLocale()` always overwrites `aiSettings.language`. The Summary Language dropdown in SettingsModal is hidden when locale-driven switching is active — the locale toggle is the single source of truth for language. This avoids confusing states where locale says Chinese but AI summaries are in Japanese.
+
+### `<html lang>` Attribute
+
+The root layout (`app/layout.tsx`) sets `<html lang={locale}>` dynamically to reflect the current locale for accessibility.
+
 ---
 
 ## 3. Language Toggle Button
@@ -107,6 +119,21 @@ Add `locale` to `SettingsSnapshot` so it survives across sessions.
 - Clicking toggles between `en` and `zh-CN`
 
 ### Implementation
+
+Note: `NAV_ITEMS` in `TopNavBar.tsx` is a module-level constant with hardcoded labels. It must be restructured to use translation keys (e.g., `labelKey: 'nav.rss'`) that are resolved via `t()` inside the component render.
+
+```tsx
+const NAV_ITEMS = [
+  { href: '/', labelKey: 'nav.rss', icon: Rss },
+  { href: '/intelligence', labelKey: 'nav.intelligence', icon: BrainCircuit },
+  // ...
+];
+
+// Inside component:
+<span>{t(item.labelKey)}</span>
+```
+
+Language toggle button:
 
 ```tsx
 <button
@@ -126,7 +153,7 @@ Add `locale` to `SettingsSnapshot` so it survives across sessions.
 
 The request body receives `locale` from the client. When `locale === 'zh-CN'`:
 
-1. **System prompt** is modified to instruct the AI to write the entire briefing in Simplified Chinese
+1. **Prompt instruction** — append to the existing prompt string: `"\n\nIMPORTANT: Write the entire response in Simplified Chinese (简体中文), including all section headings."` (no separate system prompt parameter needed)
 2. **Section headings** become Chinese:
    - `## Executive Summary` → `## 执行摘要`
    - `## Key Themes` → `## 关键主题`
@@ -142,7 +169,7 @@ When `locale === 'en'` (or absent), behavior is unchanged.
 
 ### Telegram Push
 
-The Telegram push message labels (greeting, "DAILY BRIEFING" etc.) are also localized based on `locale`.
+The Telegram push endpoint (`/api/briefings/push`) receives `locale` in the request body from the client. When `zh-CN`, the greeting and title labels (e.g., "DAILY BRIEFING" → "每日简报") are localized. The briefing content itself is already in Chinese if it was generated with `zh-CN` locale.
 
 ---
 
