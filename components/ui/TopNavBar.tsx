@@ -7,16 +7,17 @@ import { Rss, BrainCircuit, Newspaper, Bookmark, Search, Moon, Sun } from 'lucid
 import { cn } from '@/lib/utils';
 import { useBookmarksStore } from '@/lib/bookmarks-store';
 import { useSettingsStore } from '@/lib/settings-store';
+import { useTranslation } from '@/lib/i18n';
 
 interface TopNavBarProps {
   pageActions?: React.ReactNode;
 }
 
 const NAV_ITEMS = [
-  { href: '/', label: 'RSS', icon: Rss },
-  { href: '/intelligence', label: 'Intelligence', icon: BrainCircuit },
-  { href: '/briefings', label: 'Briefings', icon: Newspaper },
-  { href: '/bookmarks', label: 'Bookmarks', icon: Bookmark },
+  { href: '/', labelKey: 'nav.rss', icon: Rss },
+  { href: '/intelligence', labelKey: 'nav.intelligence', icon: BrainCircuit },
+  { href: '/briefings', labelKey: 'nav.briefings', icon: Newspaper },
+  { href: '/bookmarks', labelKey: 'nav.bookmarks', icon: Bookmark },
 ];
 
 export function TopNavBar({ pageActions }: TopNavBarProps) {
@@ -24,6 +25,8 @@ export function TopNavBar({ pageActions }: TopNavBarProps) {
   const router = useRouter();
   const bookmarkCount = useBookmarksStore((state) => state.bookmarks.length);
   const { themeId, setTheme } = useSettingsStore();
+  const { t, locale } = useTranslation();
+  const setLocale = useSettingsStore((state) => state.setLocale);
 
   const [mounted, setMounted] = useState(false);
 
@@ -91,7 +94,7 @@ export function TopNavBar({ pageActions }: TopNavBarProps) {
               key={item.href}
               href={item.href}
               prefetch
-              title={item.label}
+              title={t(item.labelKey)}
               className={navItemClass(active)}
               onMouseEnter={() => prefetchRoute(item.href)}
               onFocus={() => prefetchRoute(item.href)}
@@ -105,7 +108,7 @@ export function TopNavBar({ pageActions }: TopNavBarProps) {
                 )}
               </div>
               <span className={cn("text-[10px] uppercase font-semibold tracking-wider", active ? "text-accent" : "hidden md:block")}>
-                {item.label}
+                {t(item.labelKey)}
               </span>
             </Link>
           );
@@ -124,7 +127,7 @@ export function TopNavBar({ pageActions }: TopNavBarProps) {
         <Link
           href="/search"
           prefetch
-          title="Search"
+          title={t('nav.search')}
           className={cn(
             'w-9 h-9 flex items-center justify-center rounded-full transition-colors',
             pathname === '/search'
@@ -136,10 +139,18 @@ export function TopNavBar({ pageActions }: TopNavBarProps) {
         >
           <Search className="w-4 h-4" />
         </Link>
-        
+
+        <button
+          onClick={() => setLocale(locale === 'en' ? 'zh-CN' : 'en')}
+          title={t('nav.switchLanguage')}
+          className="w-9 h-9 flex items-center justify-center rounded-full text-foreground-secondary hover:bg-background-tertiary hover:text-foreground transition-colors font-semibold text-xs"
+        >
+          {locale === 'en' ? 'EN' : '中'}
+        </button>
+
         <button
           onClick={toggleTheme}
-          title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          title={isDarkMode ? t('nav.switchToLight') : t('nav.switchToDark')}
           className="w-9 h-9 flex items-center justify-center rounded-full text-foreground-secondary hover:bg-background-tertiary hover:text-foreground transition-colors"
         >
           {mounted ? (

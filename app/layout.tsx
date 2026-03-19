@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { DM_Sans, Playfair_Display, Orbitron, Inter, Fira_Code } from 'next/font/google';
 import './globals.css';
 import { AppProviders } from '@/components/AppProviders';
+import { HtmlLangUpdater } from '@/components/HtmlLangUpdater';
 
 const orbitron = Orbitron({
   variable: '--font-orbitron',
@@ -49,7 +50,10 @@ export default function RootLayout({
         className={`${dmSans.variable} ${playfair.variable} ${orbitron.variable} ${inter.variable} ${firaCode.variable} antialiased h-screen overflow-hidden bg-background text-foreground font-sans`}
         suppressHydrationWarning
       >
-        <AppProviders>{children}</AppProviders>
+        <AppProviders>
+          <HtmlLangUpdater />
+          {children}
+        </AppProviders>
       </body>
     </html>
   );
