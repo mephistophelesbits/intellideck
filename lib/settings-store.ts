@@ -56,6 +56,7 @@ interface SettingsState {
 
   showPreviewPanel: boolean;
   articleAgeFilter: ArticleAgeFilter;
+  locale: 'en' | 'zh-CN';
 
   setTheme: (themeId: string) => void;
   setDefaultRefreshInterval: (interval: number) => void;
@@ -63,6 +64,7 @@ interface SettingsState {
 
   setShowPreviewPanel: (show: boolean) => void;
   setArticleAgeFilter: (filter: ArticleAgeFilter) => void;
+  setLocale: (locale: 'en' | 'zh-CN') => void;
 
   aiSettings: {
     enabled: boolean;
@@ -95,6 +97,7 @@ export type SettingsSnapshot = Pick<
   | 'defaultViewMode'
   | 'showPreviewPanel'
   | 'articleAgeFilter'
+  | 'locale'
   | 'aiSettings'
   | 'briefingSettings'
 >;
@@ -106,6 +109,7 @@ export function getDefaultSettingsSnapshot(): SettingsSnapshot {
     defaultViewMode: 'comfortable',
     showPreviewPanel: true,
     articleAgeFilter: 'all',
+    locale: 'en',
     aiSettings: {
       enabled: true,
       sentimentEnabled: true,
@@ -134,6 +138,7 @@ function toSettingsSnapshot(state: SettingsState): SettingsSnapshot {
     defaultViewMode: state.defaultViewMode,
     showPreviewPanel: state.showPreviewPanel,
     articleAgeFilter: state.articleAgeFilter,
+    locale: state.locale,
     aiSettings: state.aiSettings,
     briefingSettings: state.briefingSettings,
   };
@@ -193,7 +198,18 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
       persistSettings(toSettingsSnapshot({ ...state, briefingSettings }));
       return { briefingSettings };
     }),
-  hydrateSettings: (settings) => set(() => settings),
+  setLocale: (locale) =>
+    set((state) => {
+      const language = locale === 'zh-CN' ? 'Chinese' : 'Original Language';
+      const aiSettings = { ...state.aiSettings, language };
+      const nextState = { ...state, locale, aiSettings };
+      persistSettings(toSettingsSnapshot(nextState));
+      return { locale, aiSettings };
+    }),
+  hydrateSettings: (settings) => set(() => ({
+    ...getDefaultSettingsSnapshot(),
+    ...settings,
+  })),
 }));
 
 export function getThemeById(id: string): ThemeColors {
