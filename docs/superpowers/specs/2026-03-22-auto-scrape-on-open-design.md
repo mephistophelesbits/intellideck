@@ -56,7 +56,7 @@ useEffect(() => {
 - **`handleFetchFullArticle` already has all guards** — `if (!article || isScraping || scrapedContent) return;` prevents double-fetching even if the effect fires unexpectedly.
 - **`article?.id` as dependency** — resets the timer whenever the user opens a different article.
 - **`scrapedContent` as dependency** — cancels the timer if scraping was triggered manually before 4s elapsed.
-- **`handleFetchFullArticle` intentionally omitted from deps** — it is a stable function defined in the same component render scope; including it would cause the effect to re-run unnecessarily. This follows the existing pattern in the file.
+- **`handleFetchFullArticle` intentionally omitted from deps** — it is not wrapped in `useCallback`, so it is recreated on every render. Including it in the dependency array would cause the effect to fire (and restart the timer) on every render. Omitting it is intentional and follows the existing pattern in the file.
 
 ---
 
