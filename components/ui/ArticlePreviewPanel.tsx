@@ -180,7 +180,22 @@ export function ArticlePreviewPanel({ article, onClose }: ArticlePreviewPanelPro
     setChatInput('');
   }, [article?.id, article?.link, getCachedScrapedContent, getCachedSummary, getCachedChatMessages]);
 
+  // Auto-fetch full article content after 4 seconds if feed didn't provide it
+  useEffect(() => {
+    if (!article) return;
+    if (scrapedContent) return;
+    if ((article.content?.length ?? 0) >= 500) return;
 
+    const timer = setTimeout(() => {
+      void handleFetchFullArticle();
+    }, 4000);
+
+    return () => clearTimeout(timer);
+    // handleFetchFullArticle omitted from deps: it is recreated every render
+    // (not wrapped in useCallback), so including it would restart the timer
+    // on every render. The existing guards inside the function prevent double-fetching.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [article?.id, scrapedContent]);
 
   // Extract URLs from HTML content
   const extractFirstUrl = (htmlContent: string, excludeUrl?: string): string | null => {
