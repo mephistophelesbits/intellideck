@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { nanoid } from 'nanoid';
 import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Save, Zap, ChevronUp } from 'lucide-react';
 import { useSettingsStore, themes, getThemeById } from '@/lib/settings-store';
 import { useDeckStore } from '@/lib/store';
@@ -25,6 +26,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     aiSettings,
     setAiSettings,
+    keywordAlerts,
+    setKeywordAlerts,
   } = useSettingsStore();
 
   const { t } = useTranslation();
@@ -38,7 +41,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [aiSaved, setAiSaved] = useState(false);
   const [showAllThemes, setShowAllThemes] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'general' | 'ai'>('general');
+  const [newKeyword, setNewKeyword] = useState('');
+  const [newColor, setNewColor] = useState('#ff4444');
+
+  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'keyword-alerts'>('general');
 
   useDeckStore((state) => state.columns);
   useArticlesStore((state) => state.articlesByColumn);
@@ -168,6 +174,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               {t('settings.aiAssistant')}
               {activeTab === 'ai' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t-full" />}
             </button>
+            <button
+              onClick={() => setActiveTab('keyword-alerts')}
+              className={cn(
+                "pb-2 transition-colors relative",
+                activeTab === 'keyword-alerts' ? "text-foreground font-medium" : "text-foreground-secondary hover:text-foreground"
+              )}
+            >
+              {t('settings.keywordAlerts.tab')}
+              {activeTab === 'keyword-alerts' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t-full" />}
+            </button>
           </div>
         </div>
 
@@ -264,6 +280,101 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Keyword Alerts */}
+          {activeTab === 'keyword-alerts' && (
+            <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <p className="text-sm text-foreground-secondary">
+                {t('settings.keywordAlerts.description')}
+              </p>
+
+              {/* Add new alert */}
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={newKeyword}
+                  onChange={(e) => setNewKeyword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newKeyword.trim()) {
+                      setKeywordAlerts([...keywordAlerts, { id: nanoid(), keyword: newKeyword.trim(), color: newColor, enabled: true }]);
+                      setNewKeyword('');
+                    }
+                  }}
+                  placeholder={t('settings.keywordAlerts.placeholder')}
+                  className="flex-1 bg-background-secondary border border-border rounded px-3 py-1.5 text-sm text-foreground placeholder:text-foreground-secondary focus:outline-none focus:border-accent"
+                />
+                <input
+                  type="color"
+                  value={newColor}
+                  onChange={(e) => setNewColor(e.target.value)}
+                  className="w-8 h-8 rounded cursor-pointer border border-border bg-transparent"
+                  title="Choose alert color"
+                />
+                <button
+                  onClick={() => {
+                    if (!newKeyword.trim()) return;
+                    setKeywordAlerts([...keywordAlerts, { id: nanoid(), keyword: newKeyword.trim(), color: newColor, enabled: true }]);
+                    setNewKeyword('');
+                  }}
+                  disabled={!newKeyword.trim()}
+                  className="px-3 py-1.5 text-sm bg-accent/20 text-accent border border-accent/30 rounded hover:bg-accent/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {t('settings.keywordAlerts.add')}
+                </button>
+              </div>
+
+              {/* Alert list */}
+              {keywordAlerts.length === 0 ? (
+                <p className="text-sm text-foreground-secondary italic">{t('settings.keywordAlerts.empty')}</p>
+              ) : (
+                <div className="space-y-2">
+                  {keywordAlerts.map((alert) => (
+                    <div key={alert.id} className="flex items-center gap-2 bg-background-secondary border border-border rounded-lg px-3 py-2">
+                      {/* Color dot */}
+                      <div
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ background: alert.color }}
+                      />
+                      {/* Keyword */}
+                      <span className="flex-1 text-sm text-foreground">{alert.keyword}</span>
+                      {/* Enable toggle */}
+                      <button
+                        onClick={() => setKeywordAlerts(keywordAlerts.map(a => a.id === alert.id ? { ...a, enabled: !a.enabled } : a))}
+                        className={cn(
+                          'w-9 h-5 rounded-full transition-colors relative flex-shrink-0',
+                          alert.enabled ? 'bg-accent' : 'bg-border'
+                        )}
+                        title={alert.enabled ? 'Disable alert' : 'Enable alert'}
+                      >
+                        <div className={cn(
+                          'w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform',
+                          alert.enabled ? 'translate-x-4' : 'translate-x-0.5'
+                        )} />
+                      </button>
+                      {/* Color swatch */}
+                      <label className="w-7 h-7 rounded cursor-pointer flex-shrink-0 border border-border overflow-hidden" title="Change color">
+                        <input
+                          type="color"
+                          value={alert.color}
+                          onChange={(e) => setKeywordAlerts(keywordAlerts.map(a => a.id === alert.id ? { ...a, color: e.target.value } : a))}
+                          className="w-full h-full opacity-0 absolute"
+                        />
+                        <div className="w-full h-full" style={{ background: alert.color }} />
+                      </label>
+                      {/* Delete */}
+                      <button
+                        onClick={() => setKeywordAlerts(keywordAlerts.filter(a => a.id !== alert.id))}
+                        className="text-foreground-secondary hover:text-foreground transition-colors flex-shrink-0 text-lg leading-none"
+                        title="Delete alert"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
