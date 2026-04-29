@@ -22,7 +22,7 @@ export async function waitForServer(
   throw new Error(`Server did not start within ${(intervalMs * maxAttempts) / 1000}s`);
 }
 
-export function spawnNextServer(appRoot: string): ChildProcess {
+export function spawnNextServer(appRoot: string, userDataDir?: string): ChildProcess {
   const isDev = process.env.ELECTRON_IS_DEV === '1';
 
   let command: string;
@@ -34,10 +34,12 @@ export function spawnNextServer(appRoot: string): ChildProcess {
     args = [path.join(appRoot, 'node_modules/.bin/next'), 'dev', '-p', '3001'];
     cwd = appRoot;
   } else {
-    // In production, use the standalone server built by next build
+    // In production, run the standalone server from its own directory so it
+    // resolves .next/server, .next/static, and public/ relative to itself.
+    const standaloneDir = path.join(appRoot, '.next', 'standalone');
     command = process.execPath;
-    args = [path.join(appRoot, '.next/standalone/server.js')];
-    cwd = appRoot;
+    args = [path.join(standaloneDir, 'server.js')];
+    cwd = standaloneDir;
   }
 
   const serverProcess = spawn(command, args, {
@@ -47,6 +49,9 @@ export function spawnNextServer(appRoot: string): ChildProcess {
       NODE_ENV: isDev ? 'development' : 'production',
       PORT: '3001',
       HOSTNAME: 'localhost',
+      // Pass the Electron userData dir so the Next.js server writes the DB
+      // to ~/Library/Application Support/RSS Deck/ instead of inside the bundle
+      ...(userDataDir ? { RSSDECK_DATA_DIR: userDataDir } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

@@ -118,6 +118,16 @@
       "placeholder": "Keyword (e.g. bitcoin)",
       "add": "Add",
       "empty": "No keyword alerts yet."
+    },
+    "data": {
+      "tab": "Data",
+      "retentionTitle": "Article Retention",
+      "retentionDesc": "Automatically delete articles older than the selected period. Bookmarks and briefings are never deleted.",
+      "days": "days",
+      "runCleanup": "Clean Up Now",
+      "running": "Cleaning…",
+      "cleanupDone": "Deleted {articles} articles and {snapshots} old snapshots.",
+      "cleanupError": "Cleanup failed. Please try again."
     }
   },
   "search": {

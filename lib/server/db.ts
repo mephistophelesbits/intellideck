@@ -8,7 +8,12 @@ import { DatabaseSync } from 'node:sqlite';
 let database: DatabaseSync | null = null;
 
 function getDatabasePath() {
-  const dataDir = path.join(process.cwd(), 'data');
+  // In Electron production, RSSDECK_DATA_DIR is set to app.getPath('userData')
+  // so the DB lives in ~/Library/Application Support/RSS Deck/ and survives updates.
+  // In dev / web-only mode it falls back to <cwd>/data/.
+  const dataDir = process.env.RSSDECK_DATA_DIR
+    ? path.join(process.env.RSSDECK_DATA_DIR, 'data')
+    : path.join(process.cwd(), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   return path.join(dataDir, 'rssdeck.db');
 }
@@ -355,4 +360,34 @@ export function getDb() {
   }
 
   return database;
+}
+
+/**
+ * Delete articles (and their cascade-linked analysis/locations/entities/themes)
+ * older than `daysToKeep` days. Also prunes old trend_snapshots.
+ *
+ * Returns the number of articles deleted.
+ */
+export function runRetentionCleanup(daysToKeep: number): { articlesDeleted: number; snapshotsDeleted: number } {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000).toISOString();
+
+  // Articles: cascade deletes article_analysis, article_locations, article_entities, article_themes
+  const articleResult = db.prepare(
+    `DELETE FROM articles WHERE created_at < ?`
+  ).run(cutoff) as { changes: number };
+
+  // Trend snapshots — keep last 90 days regardless of daysToKeep (they're small)
+  const snapshotCutoff = new Date(Date.now() - Math.max(daysToKeep, 90) * 24 * 60 * 60 * 1000).toISOString();
+  const snapshotResult = db.prepare(
+    `DELETE FROM trend_snapshots WHERE created_at < ?`
+  ).run(snapshotCutoff) as { changes: number };
+
+  // Vacuum to reclaim disk space
+  db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+
+  return {
+    articlesDeleted: articleResult.changes,
+    snapshotsDeleted: snapshotResult.changes,
+  };
 }

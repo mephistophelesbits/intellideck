@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { nanoid } from 'nanoid';
-import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Save, Zap, ChevronUp } from 'lucide-react';
+import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Save, Zap, ChevronUp, Database, Trash2 } from 'lucide-react';
 import { useSettingsStore, themes, getThemeById } from '@/lib/settings-store';
 import { useDeckStore } from '@/lib/store';
 import { useArticlesStore } from '@/lib/articles-store';
@@ -44,7 +44,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [newKeyword, setNewKeyword] = useState('');
   const [newColor, setNewColor] = useState('#ff4444');
 
-  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'keyword-alerts'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'keyword-alerts' | 'data'>('general');
+
+  // Data / retention state
+  const RETENTION_OPTIONS = [7, 14, 30, 60, 90];
+  const [retentionDays, setRetentionDays] = useState(30);
+  const [cleanupRunning, setCleanupRunning] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+  const [cleanupError, setCleanupError] = useState(false);
 
   useDeckStore((state) => state.columns);
   useArticlesStore((state) => state.articlesByColumn);
@@ -130,6 +137,35 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setTimeout(() => setAiSaved(false), 2000);
   };
 
+  const runCleanup = async () => {
+    setCleanupRunning(true);
+    setCleanupMessage(null);
+    setCleanupError(false);
+    try {
+      const res = await fetch('/api/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ daysToKeep: retentionDays }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCleanupMessage(
+          t('settings.data.cleanupDone')
+            .replace('{articles}', String(data.articlesDeleted))
+            .replace('{snapshots}', String(data.snapshotsDeleted))
+        );
+      } else {
+        setCleanupError(true);
+        setCleanupMessage(t('settings.data.cleanupError'));
+      }
+    } catch {
+      setCleanupError(true);
+      setCleanupMessage(t('settings.data.cleanupError'));
+    } finally {
+      setCleanupRunning(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -183,6 +219,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             >
               {t('settings.keywordAlerts.tab')}
               {activeTab === 'keyword-alerts' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t-full" />}
+            </button>
+            <button
+              onClick={() => setActiveTab('data')}
+              className={cn(
+                "pb-2 transition-colors relative",
+                activeTab === 'data' ? "text-foreground font-medium" : "text-foreground-secondary hover:text-foreground"
+              )}
+            >
+              {t('settings.data.tab')}
+              {activeTab === 'data' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t-full" />}
             </button>
           </div>
         </div>
@@ -594,6 +640,59 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* Data / Retention tab */}
+          {activeTab === 'data' && (
+            <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Database className="w-4 h-4" />
+                  <span>{t('settings.data.retentionTitle')}</span>
+                </div>
+                <p className="text-xs text-foreground-secondary leading-relaxed">
+                  {t('settings.data.retentionDesc')}
+                </p>
+
+                {/* Retention period selector */}
+                <div className="flex gap-2 flex-wrap">
+                  {[7, 14, 30, 60, 90].map((days) => (
+                    <button
+                      key={days}
+                      onClick={() => setRetentionDays(days)}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg border text-sm transition-all',
+                        retentionDays === days
+                          ? 'border-accent bg-accent text-white'
+                          : 'border-border hover:border-foreground-secondary'
+                      )}
+                    >
+                      {days} {t('settings.data.days')}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Run cleanup button */}
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    onClick={runCleanup}
+                    disabled={cleanupRunning}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {cleanupRunning ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('settings.data.running')}</>
+                    ) : (
+                      <><Trash2 className="w-3.5 h-3.5" /> {t('settings.data.runCleanup')}</>
+                    )}
+                  </button>
+                  {cleanupMessage && (
+                    <span className={cn('text-xs', cleanupError ? 'text-error' : 'text-success')}>
+                      {cleanupMessage}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           )}

@@ -118,6 +118,16 @@
       "placeholder": "关键词（如 bitcoin）",
       "add": "添加",
       "empty": "暂无关键词提醒。"
+    },
+    "data": {
+      "tab": "数据",
+      "retentionTitle": "文章保留策略",
+      "retentionDesc": "自动删除超出保留期限的旧文章。书签和简报不受影响。",
+      "days": "天",
+      "runCleanup": "立即清理",
+      "running": "清理中…",
+      "cleanupDone": "已删除 {articles} 篇文章及 {snapshots} 条旧快照。",
+      "cleanupError": "清理失败，请重试。"
     }
   },
   "search": {
