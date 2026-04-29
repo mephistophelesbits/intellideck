@@ -6,7 +6,12 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
-    "lint": "eslint"
+    "lint": "eslint",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3001 && npx ts-node --project tsconfig.electron.json -e 'require(\"./.electron-dist/main\")' || npx electron .electron-dist/main.js\"",
+    "electron:compile": "tsc --project tsconfig.electron.json",
+    "electron:start": "npm run electron:compile && ELECTRON_IS_DEV=1 npx electron .electron-dist/main.js",
+    "electron:build": "next build && npm run electron:compile && npx electron-builder",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -38,13 +43,19 @@
     "@types/dompurify": "^3.0.5",
     "@types/he": "^1.2.3",
     "@types/jsdom": "^27.0.0",
-    "@types/node": "^20",
+    "@types/node": "^20.19.39",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/topojson-client": "^3.1.5",
+    "concurrently": "^9.2.1",
+    "electron": "^34.5.8",
+    "electron-builder": "^25.1.8",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "tailwindcss": "^4",
-    "typescript": "5.9.3"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wait-on": "^9.0.5"
   }
 }
