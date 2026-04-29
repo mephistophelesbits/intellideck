@@ -42,5 +42,9 @@ export function spawnNextServer(appRoot: string): ChildProcess {
     console.error('[next-server]', data.toString().trim());
   });
 
+  serverProcess.on('error', (err) => {
+    console.error('[next-server] Failed to spawn process:', err);
+  });
+
   return serverProcess;
 }
