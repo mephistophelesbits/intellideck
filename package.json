@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "eslint",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3001 && npx ts-node --project tsconfig.electron.json -e 'require(\"./.electron-dist/main\")' || npx electron .electron-dist/main.js\"",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3001 && npm run electron:start\"",
     "electron:compile": "tsc --project tsconfig.electron.json",
     "electron:start": "npm run electron:compile && ELECTRON_IS_DEV=1 npx electron .electron-dist/main.js",
     "electron:build": "next build && npm run electron:compile && npx electron-builder",
