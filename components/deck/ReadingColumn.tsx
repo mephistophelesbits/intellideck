@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import { Article } from '@/lib/types';
 import { ArticlePreviewPanel } from '@/components/ui/ArticlePreviewPanel';
 import { cn } from '@/lib/utils';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface ReadingColumnProps {
     article: Article;
@@ -19,8 +19,16 @@ export function ReadingColumn({ article, onClose }: ReadingColumnProps) {
     const [width, setWidth] = useState(DEFAULT_READING_WIDTH);
     const [isResizing, setIsResizing] = useState(false);
 
+    const panelRef = useRef<HTMLDivElement>(null);
     const startXRef = useRef(0);
     const startWidthRef = useRef(0);
+
+    // Scroll the panel into view whenever it mounts (i.e. a new article is opened,
+    // or the active column changes). Uses 'nearest' so it scrolls minimally —
+    // just enough to reveal the left edge of the panel next to the clicked column.
+    useEffect(() => {
+        panelRef.current?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
+    }, [article.id]);
 
     const handleResizeStart = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -46,6 +54,7 @@ export function ReadingColumn({ article, onClose }: ReadingColumnProps) {
 
     return (
         <div
+            ref={panelRef}
             className="h-full flex flex-col bg-background/95 backdrop-blur-sm border-r border-border relative z-10 border-l-4 border-l-accent shadow-2xl"
             style={{
                 width: `${width}px`,
