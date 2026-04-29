@@ -51,3 +51,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .superpowers/
+
+# Electron build output
+.electron-dist/
+dist-electron/
