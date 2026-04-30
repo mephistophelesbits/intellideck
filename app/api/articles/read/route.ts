@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAllReadIds, markRead, markAllRead } from '@/lib/server/read-articles-repository';
 
 export async function GET() {
-  return NextResponse.json({ readIds: getAllReadIds() });
+  try {
+    return NextResponse.json({ readIds: getAllReadIds() });
+  } catch (error: unknown) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to get read articles' },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
