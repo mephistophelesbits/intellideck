@@ -1,4 +1,5 @@
 import { app, BrowserWindow, shell, nativeTheme } from 'electron';
+import fs from 'fs';
 import path from 'path';
 import { spawnNextServer, waitForServer, buildServerUrl } from './server';
 import type { ServerProcess } from './server';
@@ -27,23 +28,49 @@ const _ignoreEpipe = (err: NodeJS.ErrnoException) => { if (err.code !== 'EPIPE')
 process.stdout.on('error', _ignoreEpipe);
 process.stderr.on('error', _ignoreEpipe);
 
-// Strip console output in production — nothing reads it and it causes EPIPE.
+// ── Production file logger ────────────────────────────────────────────────────
+// Replaces console.* so every launch writes to ~/Library/Logs/IntelliDeck/
+// intellideck-main.log — readable after a crash to diagnose the root cause.
+let _logStream: fs.WriteStream | null = null;
+
+function setupFileLogging() {
+  try {
+    const logDir = app.getPath('logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    const logFile = path.join(logDir, 'intellideck-main.log');
+    _logStream = fs.createWriteStream(logFile, { flags: 'a' });
+    const stamp = () => new Date().toISOString();
+    const write = (level: string, args: unknown[]) => {
+      _logStream?.write(`${stamp()} [${level}] ${args.map(String).join(' ')}\n`);
+    };
+    console.log   = (...args: unknown[]) => write('INFO',  args);
+    console.info  = (...args: unknown[]) => write('INFO',  args);
+    console.warn  = (...args: unknown[]) => write('WARN',  args);
+    console.error = (...args: unknown[]) => write('ERROR', args);
+    console.debug = (...args: unknown[]) => write('DEBUG', args);
+    console.log(`IntelliDeck starting — appPath=${app.getAppPath()} execPath=${process.execPath}`);
+  } catch {
+    // Can't write logs — fall back to silent noop so we at least don't crash
+    const noop = () => {};
+    console.log = noop; console.info = noop;
+    console.warn = noop; console.error = noop; console.debug = noop;
+  }
+}
+
 if (!IS_DEV) {
-  const noop = () => {};
-  console.log = noop;
-  console.info = noop;
-  console.warn = noop;
-  console.error = noop;
-  console.debug = noop;
+  setupFileLogging();
 }
 
 let mainWindow: BrowserWindow | null = null;
 let nextServer: ServerProcess | null = null;
+let serverReady = false; // guards activate handler during initial server startup
 
 function getAppRoot(): string {
-  return IS_DEV
-    ? process.cwd()
-    : path.join((process as NodeJS.Process & { resourcesPath: string }).resourcesPath, 'app');
+  if (IS_DEV) return process.cwd();
+  // In production the Next.js standalone server is extracted from the ASAR
+  // via asarUnpack — utilityProcess.fork() needs a real filesystem path,
+  // not a virtual path inside app.asar.
+  return path.join((process as NodeJS.Process & { resourcesPath: string }).resourcesPath, 'app.asar.unpacked');
 }
 
 function getIconPath(): string {
@@ -102,7 +129,11 @@ async function createWindow() {
     if (IS_DEV) mainWindow?.webContents.openDevTools({ mode: 'detach' });
   });
 
-  await mainWindow.loadURL(SERVER_URL);
+  try {
+    await mainWindow.loadURL(SERVER_URL);
+  } catch (err) {
+    console.error('[electron] loadURL failed:', err);
+  }
 }
 
 async function startApp() {
@@ -114,6 +145,7 @@ async function startApp() {
 
   try {
     await waitForServer(SERVER_URL, 500, 60);
+    serverReady = true;
     console.log('[electron] Next.js server ready at', SERVER_URL);
   } catch (err) {
     console.error('[electron] Server failed to start:', err);
@@ -130,6 +162,10 @@ app.whenReady().then(startApp);
 // Registered once at top level (not inside createWindow) to avoid stacking
 // duplicate listeners across multiple calls.
 app.on('activate', () => {
+  // Do nothing while the server is still starting up — createWindow() will be
+  // called by startApp() once waitForServer() resolves.
+  if (!serverReady) return;
+
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
@@ -155,9 +191,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  console.log('[electron] will-quit — shutting down server');
   if (nextServer) {
-    nextServer.kill('SIGTERM');
+    nextServer.kill();
   }
+  _logStream?.end();
 });
 
 // Security: block new window creation

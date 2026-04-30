@@ -69,12 +69,18 @@ export function spawnNextServer(appRoot: string, userDataDir?: string): ServerPr
   const standaloneDir = path.join(appRoot, '.next', 'standalone');
   const serverScript = path.join(standaloneDir, 'server.js');
 
+  console.log('[next-server] fork path:', serverScript);
+  console.log('[next-server] cwd:', standaloneDir);
+
   const serverProcess = utilityProcess.fork(serverScript, [], {
     cwd: standaloneDir,
     env,
     stdio: 'pipe',
   });
 
+  serverProcess.on('spawn', () => {
+    console.log('[next-server] process spawned successfully');
+  });
   serverProcess.stdout?.on('data', (data: Buffer) => {
     console.log('[next-server]', data.toString().trim());
   });
