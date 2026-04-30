@@ -1,10 +1,10 @@
 import { app, BrowserWindow, shell, nativeTheme } from 'electron';
 import path from 'path';
 import { spawnNextServer, waitForServer, buildServerUrl } from './server';
+import type { ServerProcess } from './server';
 import { buildAppMenu } from './menu';
 import { createTray } from './tray';
 import { Menu } from 'electron';
-import type { ChildProcess } from 'child_process';
 
 const IS_DEV = process.env.ELECTRON_IS_DEV === '1';
 const PORT = 3001;
@@ -38,7 +38,7 @@ if (!IS_DEV) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-let nextServer: ChildProcess | null = null;
+let nextServer: ServerProcess | null = null;
 
 function getAppRoot(): string {
   return IS_DEV
