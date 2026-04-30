@@ -81,7 +81,7 @@ export function TopNavBar({ pageActions }: TopNavBarProps) {
         >
           <IntelliDeckMark size={30} className="group-hover:opacity-90 transition-opacity flex-shrink-0" />
           <span className="font-extrabold text-lg tracking-tight" style={{ letterSpacing: '-0.02em' }}>
-            <span className="text-[#001426] dark:text-white">Intelli</span>
+            <span style={{ color: isDarkMode ? '#ffffff' : '#001426' }}>Intelli</span>
             <span style={{ color: '#FF6A00' }}>Deck</span>
           </span>
         </Link>
