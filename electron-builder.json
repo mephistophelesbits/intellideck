@@ -9,12 +9,15 @@
   "files": [
     ".electron-dist/**/*",
     "!.electron-dist/**/*.test.js",
-    ".next/standalone/**/*",
     "package.json"
   ],
   "npmRebuild": false,
   "afterPack": "./afterPack.js",
   "extraResources": [
+    {
+      "from": ".next/standalone",
+      "to": "app/.next/standalone"
+    },
     {
       "from": "data",
       "to": "app/data",

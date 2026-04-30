@@ -1,16 +1,15 @@
 /**
  * afterPack.js — electron-builder post-pack hook
  *
- * Removes build-time-only native modules that electron-builder auto-detects
- * from root node_modules and incorrectly bundles into the app:
+ * Removes build-time-only native modules that Next.js standalone copies
+ * into its bundled node_modules but are not needed at runtime:
  *
  *   @next/swc-*          — Next.js Rust compiler (build tool, ~112 MB)
- *   @img/sharp-*         — Image optimizer (not needed for pre-built app, ~16 MB)
+ *   @img/sharp-*         — Image optimizer (not needed, ~16 MB)
  *   @swc/*               — SWC core (build tool)
  *
- * These are safe to remove because:
- *   - The app ships a pre-built .next/standalone server — no compilation at runtime
- *   - next/image optimization is not used server-side in this Electron deployment
+ * With asar:false, the standalone is an extraResource at
+ * Resources/app/.next/standalone/node_modules/.
  */
 
 const path = require('path');
@@ -20,19 +19,18 @@ exports.default = async (context) => {
   const { appOutDir, packager } = context;
   const appName = packager.appInfo.productFilename;
 
-  // Resolve the asar.unpacked node_modules path for each platform
-  const unpackedDir = process.platform === 'darwin'
-    ? path.join(appOutDir, `${appName}.app`, 'Contents', 'Resources', 'app.asar.unpacked', 'node_modules')
-    : path.join(appOutDir, 'resources', 'app.asar.unpacked', 'node_modules');
+  const standaloneModules = process.platform === 'darwin'
+    ? path.join(appOutDir, `${appName}.app`, 'Contents', 'Resources', 'app', '.next', 'standalone', 'node_modules')
+    : path.join(appOutDir, 'resources', 'app', '.next', 'standalone', 'node_modules');
 
-  if (!fs.existsSync(unpackedDir)) return;
+  if (!fs.existsSync(standaloneModules)) return;
 
-  const targets = fs.readdirSync(unpackedDir).filter(name =>
+  const targets = fs.readdirSync(standaloneModules).filter(name =>
     name === '@next' || name === '@img' || name === '@swc'
   );
 
   for (const target of targets) {
-    const fullPath = path.join(unpackedDir, target);
+    const fullPath = path.join(standaloneModules, target);
     const before = dirSizeMB(fullPath);
     fs.rmSync(fullPath, { recursive: true, force: true });
     console.log(`  afterPack: removed ${target}/ (${before} MB saved)`);
