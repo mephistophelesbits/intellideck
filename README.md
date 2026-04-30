@@ -66,6 +66,12 @@ Geo-tagged article extraction builds a live world map of where your news is comi
 
 Download the `.dmg` from [Releases](https://github.com/mephistophelesbits/intellideck/releases), open it, drag to Applications. Done. IntelliDeck runs its own embedded Next.js server — no other dependencies.
 
+> **"IntelliDeck is damaged and can't be opened"?**
+> macOS blocks unsigned apps downloaded from the internet. Run this once in Terminal, then open the app normally:
+> ```bash
+> xattr -cr /Applications/IntelliDeck.app
+> ```
+
 ### Docker (web / NAS / server)
 
 ```bash
