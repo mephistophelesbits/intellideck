@@ -50,7 +50,7 @@
     "@types/react-dom": "^19",
     "@types/topojson-client": "^3.1.5",
     "concurrently": "^9.2.1",
-    "electron": "^34.5.8",
+    "electron": "^35.7.5",
     "electron-builder": "^25.1.8",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
