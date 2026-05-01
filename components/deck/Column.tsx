@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { RefreshCw, X, Loader2, AlertCircle, GripVertical, GripHorizontal } from 'lucide-react';
+import { CheckCheck } from 'lucide-react';
+import { useReadArticlesStore } from '@/lib/read-articles-store';
 import { ColumnSettingsMenu } from './ColumnSettingsMenu';
 import { Column as ColumnType, Article } from '@/lib/types';
 import { useDeckStore, DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH } from '@/lib/store';
@@ -102,14 +104,44 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
   const setColumnWidth = useDeckStore((state) => state.setColumnWidth);
   const setColumnArticles = useArticlesStore((state) => state.setColumnArticles);
   const articleAgeFilter = useSettingsStore((state) => state.articleAgeFilter);
+  const { isRead, markAllRead } = useReadArticlesStore();
+  const keywordAlerts = useSettingsStore((state) => state.keywordAlerts);
+  const unreadCount = articles.filter((a) => !isRead(a.id)).length;
 
   const columnRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
   const resizedWidthRef = useRef(column.width || DEFAULT_COLUMN_WIDTH);
+  const prevArticleIdsRef = useRef<Set<string> | null>(null);
 
   // Use fallback width if column.width is undefined
   const columnWidth = column.width || DEFAULT_COLUMN_WIDTH;
+  const handleNewArticles = useCallback((next: Article[]) => {
+    const prev = prevArticleIdsRef.current;
+
+    if (prev !== null && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      const newArticles = next.filter((a) => !prev.has(a.id));
+      const enabledAlerts = keywordAlerts.filter((a) => a.enabled);
+
+      for (const article of newArticles) {
+        const matchedAlert = enabledAlerts.find((a) => {
+          const escaped = a.keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          return new RegExp(`\\b${escaped}\\b`, 'i').test(article.title);
+        });
+        if (matchedAlert && document.visibilityState === 'hidden') {
+          new Notification(`🔔 ${matchedAlert.keyword}`, {
+            body: article.title,
+            icon: '/icon.png',
+          });
+        }
+      }
+    }
+
+    prevArticleIdsRef.current = new Set(next.map((a) => a.id));
+    setArticles(next);
+    setColumnArticles(column.id, next);
+  }, [column.id, keywordAlerts, setColumnArticles]);
+
   const applyDeckState = useCallback((deckState: { columns: ColumnType[]; savedFeeds: { id: string; url: string; title: string }[] }) => {
     setColumns(deckState.columns);
     setSavedFeeds(deckState.savedFeeds);
@@ -131,8 +163,7 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
         // Remove duplicates (by URL and title)
         const uniqueArticles = deduplicateArticles(sortedArticles);
 
-        setArticles(uniqueArticles);
-        setColumnArticles(column.id, uniqueArticles);
+        handleNewArticles(uniqueArticles);
         setError(null);
       } catch (err) {
         setError('Failed to load articles');
@@ -177,8 +208,7 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
       // Remove duplicates (by URL and title)
       const uniqueArticles = deduplicateArticles(allArticles);
 
-      setArticles(uniqueArticles);
-      setColumnArticles(column.id, uniqueArticles);
+      handleNewArticles(uniqueArticles);
       setError(null);
     } catch (err) {
       setError('Failed to load feeds');
@@ -187,7 +217,7 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [column.type, column.id, column.sources, setColumnArticles]);
+  }, [column.type, column.id, column.sources, handleNewArticles]);
 
   // Initial load / manual refresh trigger
   useEffect(() => {
@@ -276,6 +306,20 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {unreadCount > 0 && (
+            <>
+              <span className="text-[10px] font-bold bg-accent text-white px-1.5 py-0.5 rounded-full leading-none">
+                {unreadCount}
+              </span>
+              <button
+                onClick={() => markAllRead(articles.map((a) => a.id))}
+                className="p-1.5 hover:bg-background-secondary rounded transition-colors text-foreground-secondary hover:text-accent"
+                title="Mark all as read"
+              >
+                <CheckCheck className="w-4 h-4" />
+              </button>
+            </>
+          )}
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
