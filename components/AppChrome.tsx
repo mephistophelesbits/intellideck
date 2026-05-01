@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { TopNavBar } from '@/components/ui/TopNavBar';
 import { PlusCircle, RefreshCw, Settings } from 'lucide-react';
 import { AddFeedModal } from '@/components/ui/AddFeedModal';
@@ -19,6 +19,13 @@ export function AppChrome({ children, renderContent, onRefreshAll }: AppChromePr
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      const t = setTimeout(() => void Notification.requestPermission(), 500);
+      return () => clearTimeout(t);
+    }
+  }, []);
 
   const openAddFeedModal = () => setIsAddFeedModalOpen(true);
   const closeAddFeedModal = () => setIsAddFeedModalOpen(false);
