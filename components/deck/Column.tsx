@@ -5,12 +5,14 @@ import { RefreshCw, X, Loader2, AlertCircle, GripVertical, GripHorizontal } from
 import { CheckCheck } from 'lucide-react';
 import { useReadArticlesStore } from '@/lib/read-articles-store';
 import { ColumnSettingsMenu } from './ColumnSettingsMenu';
-import { Column as ColumnType, Article } from '@/lib/types';
+import { Column as ColumnType, Article, FeedItem } from '@/lib/types';
 import { useDeckStore, DEFAULT_COLUMN_WIDTH, MIN_COLUMN_WIDTH, MAX_COLUMN_WIDTH } from '@/lib/store';
 import { useArticlesStore } from '@/lib/articles-store';
 import { useSettingsStore, ArticleAgeFilter } from '@/lib/settings-store';
 import { deleteColumnRequest, updateColumnRequest } from '@/lib/deck-client';
 import { ArticleCard } from './ArticleCard';
+import { AdCard } from './AdCard';
+import { injectAds } from '@/lib/injectAds';
 import { cn } from '@/lib/utils';
 import { DraggableAttributes, DraggableSyntheticListeners } from '@dnd-kit/core';
 
@@ -377,15 +379,22 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
                 </div>
               );
             }
-            return filteredArticles.map((article) => (
-              <ArticleCard
-                key={article.id}
-                article={article}
-                viewMode={column.settings.viewMode}
-                onClick={onArticleClick}
-                isSelected={article.id === selectedArticleId}
-              />
-            ));
+            const feedItems: FeedItem[] = injectAds(filteredArticles);
+            return feedItems.map((item) => {
+              if ('type' in item && item.type === 'ad') {
+                return <AdCard key={item.id} />;
+              }
+              const article = item as Article;
+              return (
+                <ArticleCard
+                  key={article.id}
+                  article={article}
+                  viewMode={column.settings.viewMode}
+                  onClick={onArticleClick}
+                  isSelected={article.id === selectedArticleId}
+                />
+              );
+            });
           })()
         )}
       </div>
