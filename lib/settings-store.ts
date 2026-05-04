@@ -50,9 +50,17 @@ export const themes: ThemeColors[] = [
 ];
 
 export type ArticleAgeFilter = 'all' | '1day' | '3days' | '7days';
+export type FontSize = 'small' | 'normal' | 'large';
+
+export const FONT_SIZE_PX: Record<FontSize, number> = {
+  small: 13,
+  normal: 16,
+  large: 19,
+};
 
 interface SettingsState {
   themeId: string;
+  fontSize: FontSize;
   defaultRefreshInterval: number; // in minutes
   defaultViewMode: 'compact' | 'comfortable';
 
@@ -61,6 +69,7 @@ interface SettingsState {
   locale: 'en' | 'zh-CN';
 
   setTheme: (themeId: string) => void;
+  setFontSize: (size: FontSize) => void;
   setDefaultRefreshInterval: (interval: number) => void;
   setDefaultViewMode: (mode: 'compact' | 'comfortable') => void;
 
@@ -97,6 +106,7 @@ interface SettingsState {
 export type SettingsSnapshot = Pick<
   SettingsState,
   | 'themeId'
+  | 'fontSize'
   | 'defaultRefreshInterval'
   | 'defaultViewMode'
   | 'showPreviewPanel'
@@ -110,6 +120,7 @@ export type SettingsSnapshot = Pick<
 export function getDefaultSettingsSnapshot(): SettingsSnapshot {
   return {
     themeId: 'stitch-dark',
+    fontSize: 'normal',
     defaultRefreshInterval: 10,
     defaultViewMode: 'comfortable',
     showPreviewPanel: true,
@@ -140,6 +151,7 @@ export function getDefaultSettingsSnapshot(): SettingsSnapshot {
 function toSettingsSnapshot(state: SettingsState): SettingsSnapshot {
   return {
     themeId: state.themeId,
+    fontSize: state.fontSize,
     defaultRefreshInterval: state.defaultRefreshInterval,
     defaultViewMode: state.defaultViewMode,
     showPreviewPanel: state.showPreviewPanel,
@@ -170,6 +182,11 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
     set((state) => {
       persistSettings(toSettingsSnapshot({ ...state, themeId }));
       return { themeId };
+    }),
+  setFontSize: (fontSize) =>
+    set((state) => {
+      persistSettings(toSettingsSnapshot({ ...state, fontSize }));
+      return { fontSize };
     }),
   setDefaultRefreshInterval: (interval) =>
     set((state) => {

@@ -59,7 +59,6 @@ export function AppChrome({ children, renderContent, onRefreshAll }: AppChromePr
         style={{ height: '28px', WebkitAppRegion: 'drag' } as React.CSSProperties}
       />
       <BriefingManager />
-      <StockTicker />
       <TopNavBar
         pageActions={
           <>
@@ -93,6 +92,7 @@ export function AppChrome({ children, renderContent, onRefreshAll }: AppChromePr
           </>
         }
       />
+      <StockTicker />
       <main className="flex flex-1 overflow-hidden min-h-0">
         <div className="relative flex-1 overflow-hidden min-h-0">
           {renderContent ? renderContent({ openAddFeedModal }) : children}

@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { nanoid } from 'nanoid';
-import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Save, Zap, ChevronUp, Database, Trash2 } from 'lucide-react';
-import { useSettingsStore, themes, getThemeById } from '@/lib/settings-store';
+import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Save, Zap, ChevronUp, Database, Trash2, ALargeSmall } from 'lucide-react';
+import { useSettingsStore, themes, getThemeById, type FontSize } from '@/lib/settings-store';
 import { useDeckStore } from '@/lib/store';
 import { useArticlesStore } from '@/lib/articles-store';
 import { cn } from '@/lib/utils';
@@ -17,10 +17,12 @@ interface SettingsModalProps {
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const {
     themeId,
+    fontSize,
     defaultRefreshInterval,
     defaultViewMode,
 
     setTheme,
+    setFontSize,
     setDefaultRefreshInterval,
     setDefaultViewMode,
 
@@ -266,6 +268,35 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         />
                       </div>
                       <span className="text-sm">{theme.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Text Size */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <ALargeSmall className="w-4 h-4" />
+                  <span>Text Size</span>
+                </div>
+                <div className="flex gap-2">
+                  {([
+                    { value: 'small', label: 'Small', style: 'text-xs' },
+                    { value: 'normal', label: 'Normal', style: 'text-sm' },
+                    { value: 'large', label: 'Large', style: 'text-base' },
+                  ] as { value: FontSize; label: string; style: string }[]).map(({ value, label, style }) => (
+                    <button
+                      key={value}
+                      onClick={() => setFontSize(value)}
+                      className={cn(
+                        'flex-1 px-3 py-2 rounded-lg border transition-all',
+                        style,
+                        fontSize === value
+                          ? 'border-accent bg-accent text-[color:var(--accent-foreground)]'
+                          : 'border-border hover:border-foreground-secondary'
+                      )}
+                    >
+                      {label}
                     </button>
                   ))}
                 </div>

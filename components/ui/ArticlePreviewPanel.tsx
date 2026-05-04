@@ -184,7 +184,8 @@ export function ArticlePreviewPanel({ article, onClose }: ArticlePreviewPanelPro
   useEffect(() => {
     if (!article) return;
     if (scrapedContent) return;
-    if ((article.content?.length ?? 0) >= 500) return;
+    const isTweet = (() => { try { const h = new URL(article.link).hostname.replace(/^www\./, ''); return h === 'twitter.com' || h === 'x.com'; } catch { return false; } })();
+    if (!isTweet && (article.content?.length ?? 0) >= 500) return;
 
     const timer = setTimeout(() => {
       void handleFetchFullArticle();
@@ -240,12 +241,44 @@ export function ArticlePreviewPanel({ article, onClose }: ArticlePreviewPanelPro
     return null;
   };
 
+  const isTweetUrl = (url: string) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '');
+      return host === 'twitter.com' || host === 'x.com';
+    } catch {
+      return false;
+    }
+  };
+
   // Fetch full article content
   const handleFetchFullArticle = async () => {
     if (!article || isScraping || scrapedContent) return;
 
     setIsScraping(true);
     setScrapeError(null);
+
+    // Tweet URLs need a different fetch path
+    if (isTweetUrl(article.link)) {
+      try {
+        const response = await fetch('/api/tweet', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: article.link }),
+        });
+        const data = await response.json();
+        if (response.ok && data.tweet) {
+          setScrapedContent(data.tweet);
+          setCachedScrapedContent(article.link, data.tweet);
+        } else {
+          setScrapeError(data.error || 'Failed to fetch tweet');
+        }
+      } catch (error: any) {
+        setScrapeError(error.message || 'Failed to fetch tweet');
+      } finally {
+        setIsScraping(false);
+      }
+      return;
+    }
 
     const tryFetchUrl = async (url: string): Promise<{ success: boolean; article?: ScrapedArticle; error?: string }> => {
       try {
@@ -315,19 +348,21 @@ export function ArticlePreviewPanel({ article, onClose }: ArticlePreviewPanelPro
       if (fetchFullFirst && !scrapedContent) {
         setPhase('scraping');
         try {
-          const scrapeResponse = await fetch('/api/scrape', {
+          const endpoint = isTweetUrl(article.link) ? '/api/tweet' : '/api/scrape';
+          const scrapeResponse = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url: article.link }),
           });
           const scrapeData = await scrapeResponse.json();
 
-          const hasGoodContent = scrapeResponse.ok && scrapeData.article?.textContent?.length > 200;
+          const fetched = isTweetUrl(article.link) ? scrapeData.tweet : scrapeData.article;
+          const hasGoodContent = scrapeResponse.ok && fetched?.textContent?.length > 0;
 
           if (hasGoodContent) {
-            setScrapedContent(scrapeData.article);
-            setCachedScrapedContent(article.link, scrapeData.article);
-            articleContent = scrapeData.article.textContent;
+            setScrapedContent(fetched);
+            setCachedScrapedContent(article.link, fetched);
+            articleContent = fetched.textContent;
           } else {
             // Try fallback URL from content
             const contentToSearch = article.content || article.contentSnippet || '';

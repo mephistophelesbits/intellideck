@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useSettingsStore, getThemeById } from '@/lib/settings-store';
+import { useSettingsStore, getThemeById, FONT_SIZE_PX } from '@/lib/settings-store';
 
 interface ThemeProviderProps {
   children: React.ReactNode;
@@ -27,6 +27,11 @@ function getReadableAccentForeground(accent: string) {
 
 export function ThemeProvider({ children }: ThemeProviderProps) {
   const themeId = useSettingsStore((state) => state.themeId);
+  const fontSize = useSettingsStore((state) => state.fontSize);
+
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${FONT_SIZE_PX[fontSize ?? 'normal']}px`;
+  }, [fontSize]);
 
   useEffect(() => {
     const theme = getThemeById(themeId);
