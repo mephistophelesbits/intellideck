@@ -499,7 +499,7 @@ export default function LandingPage() {
                   <div className="titlebar-dots">
                     <span></span><span></span><span></span>
                   </div>
-                  <div className="titlebar-url">intellideck.vercel.app</div>
+                  <div className="titlebar-url">localhost:3000</div>
                   <span className="material-symbols-outlined text-green">lock</span>
                 </div>
                 <div className="screenshot-carousel" id="carousel">

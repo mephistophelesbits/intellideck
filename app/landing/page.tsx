@@ -309,7 +309,6 @@ export default function LandingPage() {
               <div className="flex gap-8 text-xs text-slate-500 font-medium">
                 <a href="https://github.com/mephistophelesbits/intellideck" className="hover:text-blue-500 transition-colors">GitHub Repo</a>
                 <a href="https://hub.docker.com/r/kianfong/intellideck" className="hover:text-blue-500 transition-colors">Docker Hub</a>
-                <a href="https://intellideck.vercel.app" className="hover:text-blue-500 transition-colors">Live Demo</a>
               </div>
               <div className="text-xs text-slate-400">
                 © 2026 IntelliDeck. Open Source & Privacy Focused.
