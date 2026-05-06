@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Rss, LayoutDashboard, Newspaper, Search, Bookmark, Moon, Sun, List } from 'lucide-react';
+import { FeedWallIcon } from '@/components/ui/FeedWallIcon';
 import { IntelliDeckMark } from '@/components/ui/IntelliDeckMark';
 import { cn } from '@/lib/utils';
 import { useBookmarksStore } from '@/lib/bookmarks-store';
@@ -17,6 +18,7 @@ interface TopNavBarProps {
 const NAV_ITEMS = [
   { href: '/', labelKey: 'nav.rss', icon: Rss },
   { href: '/intelligence', labelKey: 'nav.dashboard', icon: LayoutDashboard },
+  { href: '/ambient', labelKey: 'nav.feedWall', icon: FeedWallIcon },
   { href: '/briefings', labelKey: 'nav.briefings', icon: Newspaper },
   { href: '/search', labelKey: 'nav.search', icon: Search },
   { href: '/lists', labelKey: 'nav.lists', icon: List },
@@ -33,13 +35,15 @@ export function TopNavBar({ pageActions }: TopNavBarProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    const mountedTimer = window.setTimeout(() => setMounted(true), 0);
     router.prefetch('/');
     router.prefetch('/intelligence');
+    router.prefetch('/ambient');
     router.prefetch('/briefings');
     router.prefetch('/search');
     router.prefetch('/bookmarks');
     router.prefetch('/lists');
+    return () => window.clearTimeout(mountedTimer);
   }, [router]);
 
   const prefetchRoute = (href: string) => {
