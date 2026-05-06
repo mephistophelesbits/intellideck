@@ -100,7 +100,7 @@ function toAmbientItem(article: Article, feedUrl: string, fetchedAt: string | nu
 
 export async function GET(request: NextRequest) {
   const limitParam = Number(request.nextUrl.searchParams.get('limit'));
-  const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 40;
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 240) : 160;
   const feeds = listSavedFeeds();
 
   const results = await Promise.all(

@@ -1,6 +1,6 @@
 {
   "name": "intellideck",
-  "version": "3.3.2",
+  "version": "3.3.3",
   "private": true,
   "main": ".electron-dist/main.js",
   "scripts": {

@@ -403,9 +403,30 @@ function typeFromArticle(article: AmbientFeedArticle): AmbientCard['type'] {
   return 'Signal';
 }
 
-function scoreFromRecency(minutesAgo: number, index: number) {
-  const recencyScore = minutesAgo < 30 ? 98 : minutesAgo < 120 ? 90 : minutesAgo < 360 ? 80 : minutesAgo < 1440 ? 70 : 56;
-  return Math.max(42, Math.min(98, recencyScore - Math.min(index, 18)));
+function signalBoost(article: AmbientFeedArticle) {
+  const text = `${article.title} ${stripHtml(article.contentSnippet || article.content)} ${article.sourceTitle ?? ''}`.toLowerCase();
+  let boost = 0;
+
+  if (/\b(breaking|urgent|alert|launch|released|ships|announces|acquires|funding|earnings|security|breach|outage)\b/.test(text)) {
+    boost += 8;
+  }
+  if (/\b(ai|agent|model|openai|anthropic|google|apple|nvidia|amd|market|policy|war|election)\b/.test(text)) {
+    boost += 6;
+  }
+  if (/\b(views|likes|rt|heat)\b/.test(text)) {
+    boost += 4;
+  }
+  if ((article.contentSnippet?.length ?? 0) > 120 || (article.content?.length ?? 0) > 400) {
+    boost += 3;
+  }
+
+  return boost;
+}
+
+function scoreFromArticle(article: AmbientFeedArticle, minutesAgo: number, index: number) {
+  const recencyScore = minutesAgo < 30 ? 88 : minutesAgo < 120 ? 82 : minutesAgo < 360 ? 74 : minutesAgo < 1440 ? 64 : 50;
+  const positionPenalty = Math.min(index, 40) * 0.25;
+  return Math.max(36, Math.min(98, Math.round(recencyScore + signalBoost(article) - positionPenalty)));
 }
 
 function stripHtml(value: string | null | undefined) {
@@ -433,7 +454,7 @@ function excerptFromArticle(article: AmbientFeedArticle) {
 function mapFeedToCards(feed: AmbientFeedResponse): AmbientCard[] {
   const articleCards = feed.items.map((article, index) => {
     const ageMinutes = minutesSince(article.publishedAt);
-    const score = scoreFromRecency(ageMinutes, index);
+    const score = scoreFromArticle(article, ageMinutes, index);
     const type = typeFromArticle(article);
 
     return {
@@ -477,7 +498,7 @@ function mapFeedToCards(feed: AmbientFeedResponse): AmbientCard[] {
         ]
       : [];
 
-  return [...healthCards, ...articleCards].slice(0, 24);
+  return [...healthCards, ...articleCards];
 }
 
 function paragraphsFromText(value: string) {
@@ -496,6 +517,33 @@ function isTweetUrl(value: string | undefined) {
   } catch {
     return false;
   }
+}
+
+async function loadFullContent(url: string, signal: AbortSignal) {
+  const attempts = isTweetUrl(url) ? ['/api/tweet', '/api/scrape'] : ['/api/scrape'];
+  let lastError = 'Failed to load full content';
+
+  for (const endpoint of attempts) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+        signal,
+      });
+      const data = await response.json().catch(() => ({}));
+      const article = data.article || data.tweet;
+      if (response.ok && article?.textContent) {
+        return article as ScrapedArticle;
+      }
+      lastError = data.error || lastError;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      lastError = error instanceof Error ? error.message : lastError;
+    }
+  }
+
+  throw new Error(lastError);
 }
 
 type AmbientWallPrototypeProps = {
@@ -530,7 +578,7 @@ export function AmbientWallPrototype({ embedded = false }: AmbientWallPrototypeP
 
   const loadLatestFeedCards = useCallback(async () => {
     try {
-      const response = await fetch('/api/ambient?limit=40', { cache: 'no-store' });
+      const response = await fetch('/api/ambient?limit=160', { cache: 'no-store' });
       if (!response.ok) throw new Error(`Feed Wall request failed: ${response.status}`);
       const feed = (await response.json()) as AmbientFeedResponse;
       const latestCards = mapFeedToCards(feed);
@@ -605,23 +653,11 @@ export function AmbientWallPrototype({ embedded = false }: AmbientWallPrototypeP
       [url]: { status: 'loading' },
     }));
 
-    const endpoint = isTweetUrl(url) ? '/api/tweet' : '/api/scrape';
-
-    fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const data = await response.json();
-        const article = data.article || data.tweet;
-        if (!response.ok || !article) {
-          throw new Error(data.error || 'Failed to load full content');
-        }
+    loadFullContent(url, controller.signal)
+      .then((article) => {
         setScrapedByUrl((current) => ({
           ...current,
-          [url]: { status: 'success', article: article as ScrapedArticle },
+          [url]: { status: 'success', article },
         }));
       })
       .catch((error) => {
@@ -799,10 +835,10 @@ export function AmbientWallPrototype({ embedded = false }: AmbientWallPrototypeP
   const selectedScrape = selectedCard?.url ? scrapedByUrl[selectedCard.url] : undefined;
   const selectedHeadline = selectedScrape?.article?.title || selectedCard?.title || '';
   const selectedExcerpt = selectedScrape?.article?.excerpt || selectedCard?.summary || '';
-  const selectedFullText =
-    selectedScrape?.article?.textContent ||
-    stripHtml(selectedCard?.feedContent || selectedCard?.contentSnippet || selectedCard?.details);
+  const selectedFallbackText = stripHtml(selectedCard?.feedContent || selectedCard?.contentSnippet || selectedCard?.details);
+  const selectedFullText = selectedScrape?.article?.textContent || selectedFallbackText;
   const selectedParagraphs = paragraphsFromText(selectedFullText);
+  const hasFallbackContent = selectedFallbackText.length > 0;
 
   return (
     <main className={cn('relative overflow-hidden bg-[#08090d] text-white', embedded ? 'h-full' : 'h-[100dvh]')}>
@@ -983,15 +1019,20 @@ export function AmbientWallPrototype({ embedded = false }: AmbientWallPrototypeP
                     <Sparkles className="h-4 w-4" />
                     <span>Full Content</span>
                   </div>
-                  {selectedScrape?.status === 'loading' && (
-                    <p className="text-lg leading-snug text-white/62">Pulling full article content...</p>
+                  {selectedScrape?.status === 'loading' && hasFallbackContent && (
+                    <p className="text-sm leading-snug text-white/42">Pulling richer source content...</p>
+                  )}
+                  {selectedScrape?.status === 'loading' && !hasFallbackContent && (
+                    <p className="text-lg leading-snug text-white/62">Pulling source content...</p>
                   )}
                   {selectedScrape?.status === 'error' && (
                     <div className="space-y-3">
-                      <p className="text-sm font-bold uppercase tracking-normal text-rose-200">
-                        Scraper could not extract this page
+                      <p className="text-sm font-bold uppercase tracking-normal text-amber-200">
+                        Showing feed content
                       </p>
-                      <p className="text-sm leading-snug text-white/48">{selectedScrape.error}</p>
+                      <p className="text-sm leading-snug text-white/48">
+                        Source fetch failed: {selectedScrape.error}
+                      </p>
                     </div>
                   )}
                   {selectedParagraphs.length > 0 ? (
