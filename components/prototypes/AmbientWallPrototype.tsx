@@ -478,7 +478,7 @@ export function AmbientWallPrototype({ embedded = false }: AmbientWallPrototypeP
   const [cards, setCards] = useState(seedCards);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
-  const [hoverPaused, setHoverPaused] = useState(false);
+  const [interactionPaused, setInteractionPaused] = useState(false);
   const [speed, setSpeed] = useState(0.34);
   const [liveIndex, setLiveIndex] = useState(0);
   const [readIds, setReadIds] = useState<Set<string>>(() => new Set());
@@ -487,13 +487,14 @@ export function AmbientWallPrototype({ embedded = false }: AmbientWallPrototypeP
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const firstLoopRef = useRef<HTMLDivElement | null>(null);
+  const interactionPauseTimerRef = useRef<number | null>(null);
 
   const selectedIndex = useMemo(
     () => cards.findIndex((card) => card.id === selectedId),
     [cards, selectedId]
   );
   const selectedCard = selectedIndex >= 0 ? cards[selectedIndex] : null;
-  const isMoving = !paused && !hoverPaused && !selectedCard;
+  const isMoving = !paused && !interactionPaused && !selectedCard;
 
   const loadOverviewCards = useCallback(async () => {
     try {
@@ -617,6 +618,25 @@ export function AmbientWallPrototype({ embedded = false }: AmbientWallPrototypeP
     setPinnedIds(new Set());
     if (scrollerRef.current) scrollerRef.current.scrollTop = 0;
   };
+
+  const pauseAfterManualScroll = () => {
+    setInteractionPaused(true);
+    if (interactionPauseTimerRef.current) {
+      window.clearTimeout(interactionPauseTimerRef.current);
+    }
+    interactionPauseTimerRef.current = window.setTimeout(() => {
+      setInteractionPaused(false);
+      interactionPauseTimerRef.current = null;
+    }, 2500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (interactionPauseTimerRef.current) {
+        window.clearTimeout(interactionPauseTimerRef.current);
+      }
+    };
+  }, []);
 
   const renderCard = (card: AmbientCard, duplicate = false) => {
     const isRead = readIds.has(card.id);
@@ -757,8 +777,7 @@ export function AmbientWallPrototype({ embedded = false }: AmbientWallPrototypeP
       <div
         ref={scrollerRef}
         className="absolute inset-0 overflow-y-auto px-4 pb-10 pt-24 md:px-6 lg:px-8"
-        onMouseEnter={() => setHoverPaused(true)}
-        onMouseLeave={() => setHoverPaused(false)}
+        onWheel={pauseAfterManualScroll}
       >
         <section ref={firstLoopRef} className="columns-1 gap-4 sm:columns-2 xl:columns-3 2xl:columns-4">
           {rankedCards.map((card) => renderCard(card))}
