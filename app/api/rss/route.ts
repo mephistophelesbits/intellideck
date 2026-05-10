@@ -15,7 +15,10 @@ export async function GET(request: NextRequest) {
   try {
     const result = await ingestFeed(url);
     if (!result.response) {
-      throw new Error(result.error || 'Failed to fetch or parse RSS feed');
+      return NextResponse.json(
+        { error: result.error || 'Failed to fetch or parse RSS feed' },
+        { status: 422 }
+      );
     }
     return NextResponse.json(result.response);
   } catch (error: unknown) {

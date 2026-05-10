@@ -4,7 +4,7 @@
   "private": true,
   "main": ".electron-dist/main.js",
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "RSSDECK_DATA_DIR=\"$HOME/Library/Application Support/IntelliDeckDev\" next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "eslint",
