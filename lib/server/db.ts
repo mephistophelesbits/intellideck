@@ -226,6 +226,8 @@ function initializeDatabase(db: DatabaseSync) {
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_canonical_url ON articles(canonical_url);
     CREATE INDEX IF NOT EXISTS idx_articles_updated_at ON articles(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_articles_created_at ON articles(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_briefings_briefing_date ON briefings(briefing_date);
     CREATE INDEX IF NOT EXISTS idx_article_analysis_category ON article_analysis(primary_category);
     CREATE INDEX IF NOT EXISTS idx_briefing_chat_messages_briefing_id ON briefing_chat_messages(briefing_id, created_at);
@@ -249,11 +251,40 @@ function ensureColumn(db: DatabaseSync, tableName: string, columnName: string, c
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
 }
 
+function normalizeLegacyArticleDates(db: DatabaseSync) {
+  const rows = db.prepare(`
+    SELECT id, published_at
+    FROM articles
+    WHERE published_at IS NOT NULL
+      AND published_at NOT GLOB '????-??-??T*'
+    LIMIT 1000
+  `).all() as Array<{ id: string; published_at: string }>;
+
+  if (rows.length === 0) return;
+
+  const update = db.prepare('UPDATE articles SET published_at = ? WHERE id = ?');
+  let normalizedCount = 0;
+
+  for (const row of rows) {
+    const parsed = Date.parse(row.published_at);
+    if (!Number.isFinite(parsed)) continue;
+
+    update.run(new Date(parsed).toISOString(), row.id);
+    normalizedCount += 1;
+  }
+
+  if (normalizedCount > 0) {
+    console.log(`[Migration] Normalized ${normalizedCount} legacy article published_at values`);
+  }
+}
+
 /**
  * Run one-time migrations for features that need to convert existing data.
  * This is called once on first database connection.
  */
 function runMigrations(db: DatabaseSync) {
+  normalizeLegacyArticleDates(db);
+
   // Check if we need to migrate columns to feed_lists
   const existingLists = db.prepare('SELECT COUNT(*) as count FROM feed_lists').get() as { count: number };
   if (existingLists.count === 0) {

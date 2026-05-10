@@ -1,10 +1,11 @@
 import { app, BrowserWindow, shell, nativeTheme } from 'electron';
+import type { Tray } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { spawnNextServer, waitForServer, buildServerUrl } from './server';
 import type { ServerProcess } from './server';
 import { buildAppMenu } from './menu';
-import { createTray } from './tray';
+import { createTrayWithActions } from './tray';
 import { Menu } from 'electron';
 
 const IS_DEV = process.env.ELECTRON_IS_DEV === '1';
@@ -62,8 +63,31 @@ if (!IS_DEV) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let appTray: Tray | null = null;
 let nextServer: ServerProcess | null = null;
 let serverReady = false; // guards activate handler during initial server startup
+
+function showMainWindow() {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+
+  if (serverReady) {
+    void createWindow();
+  }
+}
+
+function reloadMainWindow() {
+  if (mainWindow) {
+    mainWindow.webContents.reload();
+    return;
+  }
+
+  showMainWindow();
+}
 
 function getAppRoot(): string {
   if (IS_DEV) return process.cwd();
@@ -121,7 +145,12 @@ async function createWindow() {
   const menu = buildAppMenu(mainWindow);
   Menu.setApplicationMenu(menu);
 
-  createTray(mainWindow, getIconPath());
+  if (!appTray) {
+    appTray = createTrayWithActions(getIconPath(), {
+      showWindow: showMainWindow,
+      reloadWindow: reloadMainWindow,
+    });
+  }
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
@@ -191,6 +220,8 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   console.log('[electron] will-quit — shutting down server');
+  appTray?.destroy();
+  appTray = null;
   if (nextServer) {
     nextServer.kill();
   }

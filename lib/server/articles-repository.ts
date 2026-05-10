@@ -4,11 +4,7 @@ import crypto from 'crypto';
 import { Article } from '@/lib/types';
 import { getDb } from './db';
 import { classifyCategory, extractEntities, extractLocations, extractThemes } from './intelligence';
-
-type OverviewRow = {
-  category: string;
-  count: number;
-};
+import type { ScrapedArticle } from './article-scraper';
 
 type KeywordCloudRow = {
   name: string;
@@ -65,6 +61,109 @@ type BriefingContextArticle = {
   importance_score: number | null;
 };
 
+type ArticleTagType = 'category' | 'topic' | 'geo' | 'entity' | 'source';
+
+type ArticleTag = {
+  name: string;
+  type: ArticleTagType;
+  score: number;
+};
+
+const PRIORITY_INTEREST_TAGS = new Map<string, number>([
+  ['ai', 36],
+  ['ai models', 36],
+  ['ai regulation', 24],
+  ['technology', 32],
+  ['semiconductors', 34],
+  ['cloud infrastructure', 28],
+  ['cybersecurity', 26],
+  ['open source', 22],
+  ['electric vehicles', 18],
+  ['business', 26],
+  ['markets', 24],
+  ['industrial policy', 22],
+  ['monetary policy', 16],
+  ['market volatility', 14],
+  ['trade policy', 12],
+]);
+
+const PRIORITY_INTEREST_PATTERNS: Array<[RegExp, number]> = [
+  [/\b(ai|llm|agentic|agent|artificial intelligence|machine learning)\b/i, 34],
+  [/\b(openai|anthropic|nvidia|tsmc|amd|apple|microsoft|google|meta|amazon|tesla|bytedance|deepseek)\b/i, 28],
+  [/\b(chip|chips|semiconductor|gpu|accelerator|data center|cloud|model|startup|venture|funding|ipo)\b/i, 26],
+  [/\b(earnings|revenue|margin|profit|acquisition|merger|antitrust|regulation|export control|tariff)\b/i, 20],
+  [/\b(人工智能|大模型|智能体|芯片|半导体|英伟达|台积电|创业|融资|并购|营收|利润|云计算|数据中心)\b/i, 30],
+];
+
+const LOWER_PRIORITY_NEWS_TAGS = new Map<string, number>([
+  ['world', -18],
+  ['politics', -20],
+  ['elections', -24],
+  ['military and defense', -20],
+  ['geopolitical conflict', -18],
+  ['china policy', -8],
+  ['us-china', -6],
+]);
+
+const GENERIC_POLITICS_PATTERN = /\b(pm|prime minister|minister|election|poll|parliament|congress|senate|president|campaign|judicial|justice)\b/i;
+
+const LEGACY_DISPLAY_TAGS = new Set([
+  'ai',
+  'technology',
+  'markets',
+  'business',
+  'politics',
+  'world',
+  'science',
+  'health',
+  'energy',
+  'climate',
+  'china',
+  'southeast asia',
+  'semiconductors',
+  'ai models',
+  'ai regulation',
+  'cybersecurity',
+  'cloud infrastructure',
+  'trade policy',
+  'monetary policy',
+  'market volatility',
+  'energy transition',
+  'oil and gas',
+  'electric vehicles',
+  'military and defense',
+  'geopolitical conflict',
+  'elections',
+  'industrial policy',
+  'open source',
+  'space launch',
+  'biotech',
+  'public health',
+  'climate risk',
+  'china policy',
+  'us-china',
+  'usa',
+  'united states',
+  'united kingdom',
+  'malaysia',
+  'singapore',
+  'indonesia',
+  'thailand',
+  'vietnam',
+  'philippines',
+  'japan',
+  'south korea',
+  'india',
+  'russia',
+  'ukraine',
+  'israel',
+  'gaza',
+  'taiwan',
+  'germany',
+  'france',
+  'hong kong',
+]);
+
 type StorylineSeedArticle = {
   id: string;
   title: string;
@@ -106,10 +205,19 @@ export function persistArticles(sourceUrl: string, sourceTitle: string | undefin
       source_url = excluded.source_url,
       source_title = excluded.source_title,
       title = excluded.title,
-      published_at = excluded.published_at,
+      published_at = CASE
+        WHEN excluded.published_at IS NULL THEN articles.published_at
+        WHEN articles.published_at IS NULL THEN excluded.published_at
+        WHEN articles.published_at GLOB '????-??-??T*' THEN articles.published_at
+        ELSE excluded.published_at
+      END,
       author = excluded.author,
       content_snippet = excluded.content_snippet,
-      raw_content = excluded.raw_content,
+      raw_content = CASE
+        WHEN length(COALESCE(articles.raw_content, '')) > length(COALESCE(excluded.raw_content, ''))
+          THEN articles.raw_content
+        ELSE excluded.raw_content
+      END,
       image_url = excluded.image_url,
       hash_fingerprint = excluded.hash_fingerprint,
       updated_at = excluded.updated_at
@@ -119,19 +227,6 @@ export function persistArticles(sourceUrl: string, sourceTitle: string | undefin
   for (const article of articles) {
     const canonicalUrl = article.link || article.id;
     const articleId = canonicalUrl;
-    const combinedContent = `${article.contentSnippet || ''}\n${article.content || ''}`;
-    const category = classifyCategory(article.title, combinedContent);
-    const locations = extractLocations(article.title, combinedContent);
-    const entities = extractEntities(article.title, combinedContent);
-    const themes = extractThemes(article.title, combinedContent, category);
-    const tags = Array.from(new Set([
-      category,
-      ...(sourceTitle ? [sourceTitle] : []),
-      ...themes.map((theme) => theme.name),
-      ...(locations.map((location) => location.name)),
-      ...(entities.slice(0, 8).map((entity) => entity.name)),
-    ])).slice(0, 18);
-
     articleStatement.run(
       articleId,
       sourceUrl,
@@ -162,6 +257,65 @@ export function persistArticles(sourceUrl: string, sourceTitle: string | undefin
   }
 
   rebuildTrendSnapshots();
+}
+
+export function updateArticleFullContent(articleId: string, scraped: ScrapedArticle) {
+  const db = getDb();
+  const analyzedAt = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE articles
+    SET
+      raw_content = CASE
+        WHEN length(COALESCE(raw_content, '')) > length(?)
+          THEN raw_content
+        ELSE ?
+      END,
+      scraped_html = ?,
+      scraped_text = ?,
+      content_snippet = CASE
+        WHEN content_snippet IS NULL OR length(content_snippet) < 80
+          THEN ?
+        ELSE content_snippet
+      END,
+      author = COALESCE(author, ?)
+    WHERE id = ? OR canonical_url = ?
+  `).run(
+    scraped.content,
+    scraped.content,
+    scraped.content,
+    scraped.textContent,
+    scraped.excerpt || scraped.textContent.slice(0, 300),
+    scraped.byline,
+    articleId,
+    articleId
+  );
+
+  const enrichedRow = db.prepare(`
+    SELECT id, title, content_snippet, raw_content, source_title, published_at
+    FROM articles
+    WHERE id = ? OR canonical_url = ?
+    LIMIT 1
+  `).get(articleId, articleId) as {
+    id: string;
+    title: string;
+    content_snippet: string | null;
+    raw_content: string | null;
+    source_title: string | null;
+    published_at: string | null;
+  } | undefined;
+
+  if (!enrichedRow) return;
+
+  upsertArticleEnrichment(createEnrichmentStatements(db), {
+    articleId: enrichedRow.id,
+    title: enrichedRow.title,
+    contentSnippet: enrichedRow.content_snippet,
+    rawContent: enrichedRow.raw_content,
+    sourceTitle: enrichedRow.source_title,
+    pubDate: enrichedRow.published_at,
+    analyzedAt,
+  });
 }
 
 export function reprocessStoredArticles(limit = 500) {
@@ -291,13 +445,13 @@ function upsertArticleEnrichment(
   const locations = extractLocations(article.title, combinedContent);
   const entities = extractEntities(article.title, combinedContent);
   const themes = extractThemes(article.title, combinedContent, category);
-  const tags = Array.from(new Set([
+  const tags = buildArticleTags({
     category,
-    ...(article.sourceTitle ? [article.sourceTitle] : []),
-    ...themes.map((theme) => theme.name),
-    ...locations.map((location) => location.name),
-    ...entities.slice(0, 8).map((entity) => entity.name),
-  ])).slice(0, 18);
+    sourceTitle: article.sourceTitle,
+    themes,
+    locations,
+    entities,
+  });
 
   statements.analysisStatement.run(
     article.articleId,
@@ -409,16 +563,6 @@ export function getIntelligenceOverview(days = 7) {
     article_count: number;
     source_count: number;
   };
-
-  const categories = db.prepare(`
-    SELECT aa.primary_category AS category, COUNT(*) AS count
-    FROM article_analysis aa
-    JOIN articles a ON a.id = aa.article_id
-    WHERE a.updated_at >= ?
-    GROUP BY aa.primary_category
-    ORDER BY count DESC
-    LIMIT 12
-  `).all(cutoff) as OverviewRow[];
 
   const keywordCloud = db.prepare(`
     SELECT
@@ -792,6 +936,7 @@ export function getCountryDetail(countryCode: string, days = 7) {
 export function getRecentArticlesForBriefing(limit = 50, days = 2) {
   const db = getDb();
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const futureSkew = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
   return db.prepare(`
     SELECT
@@ -808,11 +953,12 @@ export function getRecentArticlesForBriefing(limit = 50, days = 2) {
     LEFT JOIN article_analysis aa ON aa.article_id = a.id
     LEFT JOIN article_entities ae ON ae.article_id = a.id
     LEFT JOIN article_themes at ON at.article_id = a.id
-    WHERE a.updated_at >= ?
+    WHERE COALESCE(a.published_at, a.created_at) >= ?
+      AND COALESCE(a.published_at, a.created_at) <= ?
     GROUP BY a.id, a.canonical_url, a.title, a.published_at, a.source_title, aa.primary_category, aa.importance_score
-    ORDER BY aa.importance_score DESC, entity_count DESC, theme_count DESC, a.published_at DESC, a.updated_at DESC
+    ORDER BY aa.importance_score DESC, entity_count DESC, theme_count DESC, COALESCE(a.published_at, a.created_at) DESC, a.updated_at DESC
     LIMIT ?
-  `).all(cutoff, limit) as Array<{
+  `).all(cutoff, futureSkew, limit) as Array<{
     id: string;
     canonical_url: string;
     title: string;
@@ -823,6 +969,177 @@ export function getRecentArticlesForBriefing(limit = 50, days = 2) {
     entity_count: number;
     theme_count: number;
   }>;
+}
+
+export function getTodayPriorityFeed(limit = 24, days = 2) {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const futureSkew = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const rowLimit = Math.max(limit * 8, 240);
+
+  const rows = db.prepare(`
+    SELECT
+      a.id,
+      a.canonical_url,
+      a.title,
+      a.published_at,
+      a.updated_at,
+      a.source_title,
+      a.source_url,
+      a.author,
+      a.content_snippet,
+      a.raw_content,
+      a.image_url,
+      aa.primary_category,
+      aa.tags_json,
+      aa.importance_score,
+      a.created_at,
+      COUNT(DISTINCT ae.entity_id) AS entity_count,
+      COUNT(DISTINCT at.theme_id) AS theme_count,
+      COUNT(DISTINCT al.location_id) AS location_count
+    FROM articles a
+    LEFT JOIN article_analysis aa ON aa.article_id = a.id
+    LEFT JOIN article_entities ae ON ae.article_id = a.id
+    LEFT JOIN article_themes at ON at.article_id = a.id
+    LEFT JOIN article_locations al ON al.article_id = a.id
+    WHERE COALESCE(a.published_at, a.created_at) >= ?
+      AND COALESCE(a.published_at, a.created_at) <= ?
+    GROUP BY
+      a.id,
+      a.canonical_url,
+      a.title,
+      a.published_at,
+      a.updated_at,
+      a.source_title,
+      a.source_url,
+      a.author,
+      a.content_snippet,
+      a.raw_content,
+      a.image_url,
+      aa.primary_category,
+      aa.tags_json,
+      aa.importance_score,
+      a.created_at
+    ORDER BY COALESCE(a.published_at, a.created_at) DESC, a.updated_at DESC, aa.importance_score DESC
+    LIMIT ?
+  `).all(cutoff, futureSkew, rowLimit) as Array<{
+    id: string;
+    canonical_url: string;
+    title: string;
+    published_at: string | null;
+    updated_at: string;
+    source_title: string | null;
+    source_url: string;
+    author: string | null;
+    content_snippet: string | null;
+    raw_content: string | null;
+    image_url: string | null;
+    primary_category: string | null;
+    tags_json: string | null;
+    importance_score: number | null;
+    created_at: string;
+    entity_count: number;
+    theme_count: number;
+    location_count: number;
+  }>;
+
+  const scored = rows.map((article) => {
+    const displayDate = article.published_at || article.created_at;
+    const displayTime = new Date(displayDate).getTime();
+    const ageHours = Math.max(1, (Date.now() - displayTime) / (1000 * 60 * 60));
+    const recencyBonus = Math.max(0, 24 - ageHours) * 1.2;
+    const entityBonus = Math.min(24, article.entity_count * 4);
+    const themeBonus = Math.min(18, article.theme_count * 3);
+    const locationBonus = Math.min(10, article.location_count * 2.5);
+    const categoryBonus = article.primary_category && article.primary_category !== 'General' ? 8 : 0;
+    const parsedTags = parseArticleTags(article.tags_json);
+    const interestBonus = computePriorityInterestBonus({
+      title: article.title,
+      summary: article.content_snippet,
+      sourceTitle: article.source_title,
+      category: article.primary_category,
+      tags: parsedTags,
+    });
+    const priorityScore = Number(((article.importance_score ?? 0) + recencyBonus + entityBonus + themeBonus + locationBonus + categoryBonus + interestBonus).toFixed(2));
+    const reasons = buildPriorityReasons({
+      ageHours,
+      primaryCategory: article.primary_category,
+      entityCount: article.entity_count,
+      themeCount: article.theme_count,
+      locationCount: article.location_count,
+      importanceScore: article.importance_score ?? 0,
+    });
+    const tags = getDisplayTags(parsedTags, article.primary_category, article.source_title);
+
+    const urgency: 'urgent' | 'important' | 'watch' = priorityScore >= 135 || (ageHours <= 4 && priorityScore >= 95)
+      ? 'urgent'
+      : priorityScore >= 105
+        ? 'important'
+        : 'watch';
+
+    return {
+      id: article.id,
+      url: article.canonical_url,
+      title: article.title,
+      publishedAt: article.published_at,
+      updatedAt: article.created_at,
+      sourceTitle: article.source_title,
+      sourceUrl: article.source_url,
+      author: article.author,
+      summary: article.content_snippet,
+      content: article.raw_content,
+      thumbnail: article.image_url,
+      category: article.primary_category,
+      tags,
+      tagDetails: parsedTags,
+      priorityScore,
+      interestBonus,
+      urgency,
+      reasons,
+    };
+  });
+
+  const latestRelevant = scored
+    .filter((item) =>
+      item.interestBonus > 0 ||
+      item.category === 'AI' ||
+      item.category === 'Technology'
+    )
+    .sort((a, b) => new Date(b.publishedAt || b.updatedAt).getTime() - new Date(a.publishedAt || a.updatedAt).getTime())
+    .slice(0, Math.min(8, limit));
+  const topScored = scored
+    .sort((a, b) => b.priorityScore - a.priorityScore)
+    .slice(0, limit);
+  const selected = new Map<string, (typeof scored)[number]>();
+  for (const item of [...latestRelevant, ...topScored]) {
+    selected.set(item.id, item);
+  }
+
+  return Array.from(selected.values())
+    .sort((a, b) => {
+      const dateDelta = new Date(b.publishedAt || b.updatedAt).getTime() - new Date(a.publishedAt || a.updatedAt).getTime();
+      return dateDelta || b.priorityScore - a.priorityScore;
+    })
+    .slice(0, limit)
+    .map((item) => ({
+      id: item.id,
+      url: item.url,
+      title: item.title,
+      publishedAt: item.publishedAt,
+      updatedAt: item.updatedAt,
+      sourceTitle: item.sourceTitle,
+      sourceUrl: item.sourceUrl,
+      author: item.author,
+      summary: item.summary,
+      content: item.content,
+      thumbnail: item.thumbnail,
+      category: item.category,
+      tags: item.tags,
+      tagDetails: item.tagDetails,
+      priorityScore: item.priorityScore,
+      urgency: item.urgency,
+      reasons: item.reasons,
+    }));
 }
 
 export function getLocationDetail(locationName: string, days = 7) {
@@ -1317,6 +1634,220 @@ function normalizeStorylineTitle(title: string) {
     .filter((token) => token.length > 4)
     .slice(0, 4)
     .join(' ');
+}
+
+function buildPriorityReasons(input: {
+  ageHours: number;
+  primaryCategory: string | null;
+  entityCount: number;
+  themeCount: number;
+  locationCount: number;
+  importanceScore: number;
+}) {
+  const reasons: string[] = [];
+
+  if (input.ageHours <= 6) {
+    reasons.push('fresh development');
+  }
+  if (input.importanceScore >= 90) {
+    reasons.push('high article importance');
+  }
+  if (input.primaryCategory && input.primaryCategory !== 'General') {
+    reasons.push(`${input.primaryCategory} signal`);
+  }
+  if (input.entityCount >= 3) {
+    reasons.push('multiple key entities');
+  }
+  if (input.themeCount >= 3) {
+    reasons.push('strong theme match');
+  }
+  if (input.locationCount > 0) {
+    reasons.push('location-linked story');
+  }
+
+  return reasons.slice(0, 3);
+}
+
+function computePriorityInterestBonus(input: {
+  title: string;
+  summary: string | null;
+  sourceTitle: string | null;
+  category: string | null;
+  tags: ArticleTag[];
+}) {
+  let score = 0;
+  const normalizedTags = new Set(input.tags.map((tag) => tag.name.toLowerCase()));
+  if (input.category) normalizedTags.add(input.category.toLowerCase());
+
+  const titleSummaryText = `${input.title}\n${input.summary ?? ''}\n${input.sourceTitle ?? ''}`;
+  let lexicalInterestScore = 0;
+  for (const [pattern, bonus] of PRIORITY_INTEREST_PATTERNS) {
+    if (pattern.test(titleSummaryText)) lexicalInterestScore += bonus;
+  }
+
+  for (const tag of normalizedTags) {
+    const tagBonus = PRIORITY_INTEREST_TAGS.get(tag) ?? 0;
+    if (tagBonus > 0 && lexicalInterestScore > 0) {
+      score += tagBonus;
+    }
+    score += LOWER_PRIORITY_NEWS_TAGS.get(tag) ?? 0;
+  }
+
+  score += lexicalInterestScore;
+
+  const hasTechOrBusinessSignal = lexicalInterestScore > 0;
+
+  if (!hasTechOrBusinessSignal && GENERIC_POLITICS_PATTERN.test(titleSummaryText)) {
+    score -= 24;
+  }
+
+  if (!hasTechOrBusinessSignal && (normalizedTags.has('world') || normalizedTags.has('politics'))) {
+    score -= 18;
+  }
+
+  return Math.max(-42, Math.min(90, score));
+}
+
+function buildArticleTags(input: {
+  category: string;
+  sourceTitle: string | null;
+  themes: Array<{ name: string; score: number }>;
+  locations: Array<{ name: string; mentionCount: number; locationType: 'country' | 'city' }>;
+  entities: Array<{ name: string; mentionCount: number }>;
+}) {
+  const tags = new Map<string, ArticleTag>();
+  const addTag = (tag: ArticleTag) => {
+    const normalized = normalizeTagName(tag.name);
+    if (!normalized) return;
+    const existing = tags.get(normalized.toLowerCase());
+    if (!existing || tag.score > existing.score) {
+      tags.set(normalized.toLowerCase(), {
+        ...tag,
+        name: normalized,
+        score: Number(tag.score.toFixed(2)),
+      });
+    }
+  };
+
+  if (input.category && input.category !== 'General') {
+    addTag({ name: input.category, type: 'category', score: 80 });
+  }
+
+  for (const theme of input.themes) {
+    if (theme.name === input.category) continue;
+    addTag({
+      name: theme.name,
+      type: 'topic',
+      score: 60 + Math.min(30, theme.score * 4),
+    });
+  }
+
+  for (const location of input.locations) {
+    addTag({
+      name: location.name === 'United States' ? 'USA' : location.name,
+      type: 'geo',
+      score: (location.locationType === 'country' ? 58 : 48) + Math.min(20, location.mentionCount * 4),
+    });
+  }
+
+  for (const entity of input.entities.slice(0, 8)) {
+    addTag({
+      name: entity.name,
+      type: 'entity',
+      score: 35 + Math.min(25, entity.mentionCount * 5),
+    });
+  }
+
+  if (input.sourceTitle) {
+    addTag({
+      name: input.sourceTitle,
+      type: 'source',
+      score: 20,
+    });
+  }
+
+  return Array.from(tags.values())
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, 24);
+}
+
+function normalizeTagName(name: string) {
+  return name
+    .replace(/\s+/g, ' ')
+    .replace(/^the\s+/i, '')
+    .trim()
+    .slice(0, 48);
+}
+
+function getDisplayTags(tags: ArticleTag[], category: string | null, sourceTitle: string | null) {
+  const displayTypes: ArticleTagType[] = ['category', 'topic', 'geo'];
+  const sourceNormalized = sourceTitle?.trim().toLowerCase();
+  const names = tags
+    .filter((tag) => displayTypes.includes(tag.type))
+    .filter((tag) => isUsefulDisplayTag(tag.name))
+    .filter((tag) => tag.name.trim().toLowerCase() !== sourceNormalized)
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .map((tag) => tag.name);
+
+  return Array.from(new Set([
+    ...(category && category !== 'General' ? [category] : []),
+    ...names,
+  ])).slice(0, 8);
+}
+
+function isUsefulDisplayTag(name: string) {
+  const normalized = name.trim().toLowerCase();
+  if (normalized.length < 2) return false;
+  if (normalized.includes('url')) return false;
+  if (normalized.includes('http')) return false;
+  if (normalized.includes('rss')) return false;
+  if (normalized.includes('feed')) return false;
+  if (normalized.includes('comments')) return false;
+  if (normalized.includes(' views')) return false;
+  if (normalized.includes(' likes')) return false;
+  if (normalized.includes(' rt')) return false;
+  if (normalized.split(/\s+/).length > 4) return false;
+  return true;
+}
+
+function parseArticleTags(tagsJson: string | null): ArticleTag[] {
+  if (!tagsJson) return [];
+
+  try {
+    const parsed = JSON.parse(tagsJson);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((tag): ArticleTag | null => {
+        if (typeof tag === 'string' && tag.trim().length > 0) {
+          const name = normalizeTagName(tag);
+          const normalized = name.toLowerCase();
+          return {
+            name,
+            type: LEGACY_DISPLAY_TAGS.has(normalized) || /^[A-Z]{2,5}$/.test(name) ? 'topic' : 'entity',
+            score: LEGACY_DISPLAY_TAGS.has(normalized) ? 45 : 25,
+          };
+        }
+        if (
+          tag &&
+          typeof tag === 'object' &&
+          typeof tag.name === 'string' &&
+          typeof tag.type === 'string' &&
+          ['category', 'topic', 'geo', 'entity', 'source'].includes(tag.type)
+        ) {
+          return {
+            name: normalizeTagName(tag.name),
+            type: tag.type as ArticleTagType,
+            score: typeof tag.score === 'number' ? tag.score : 40,
+          };
+        }
+        return null;
+      })
+      .filter((tag): tag is ArticleTag => Boolean(tag?.name))
+      .slice(0, 16);
+  } catch {
+    return [];
+  }
 }
 
 function hashArticle(article: Article) {

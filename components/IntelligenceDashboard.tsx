@@ -626,7 +626,7 @@ export function IntelligenceDashboard() {
   );
 
   return (
-    <AppChrome onRefreshAll={handleRefreshCorpus}>
+    <AppChrome onRefreshAll={handleRefreshCorpus} showAddFeedAction={false}>
       <div className="h-full overflow-y-auto">
         <div className="w-full px-4 py-4 md:px-5 md:py-5">
           <header className="mb-4 flex items-start justify-between gap-3 flex-wrap">

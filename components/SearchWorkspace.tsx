@@ -249,7 +249,7 @@ export function SearchWorkspace() {
   };
 
   return (
-    <AppChrome onRefreshAll={handleRefreshAll}>
+    <AppChrome onRefreshAll={handleRefreshAll} showAddFeedAction={false}>
       <div className="flex h-full overflow-hidden">
         <aside className="w-[280px] border-r border-border bg-background-secondary/70 p-4">
           <div className="flex items-center gap-2">

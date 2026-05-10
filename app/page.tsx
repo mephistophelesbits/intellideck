@@ -1,7 +1,7 @@
 'use client';
 
-import { Dashboard } from '@/components/Dashboard';
+import { TodayWorkspace } from '@/components/TodayWorkspace';
 
 export default function Home() {
-  return <Dashboard />;
+  return <TodayWorkspace />;
 }

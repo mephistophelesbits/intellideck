@@ -22,33 +22,34 @@ type LocationSeed = {
 };
 
 const CATEGORY_RULES: CategoryRule[] = [
-  { category: 'AI', patterns: [/\bai\b/i, /artificial intelligence/i, /\bllm\b/i, /openai/i, /anthropic/i, /gemini/i] },
-  { category: 'Technology', patterns: [/software/i, /hardware/i, /semiconductor/i, /chip/i, /startup/i, /developer/i, /hacker news/i] },
+  { category: 'AI', patterns: [/\bai\b/i, /artificial intelligence/i, /\bllm\b/i, /openai/i, /anthropic/i, /gemini/i, /人工智能/i, /大模型/i, /生成式/i, /智能体/i] },
+  { category: 'Technology', patterns: [/software/i, /hardware/i, /semiconductor/i, /chip/i, /startup/i, /developer/i, /hacker news/i, /科技/i, /芯片/i, /半导体/i, /创业/i] },
   { category: 'Markets', patterns: [/stock/i, /market/i, /nasdaq/i, /dow/i, /s&p/i, /bond/i, /yield/i, /crypto/i, /bitcoin/i] },
-  { category: 'Business', patterns: [/company/i, /earnings/i, /merger/i, /acquisition/i, /revenue/i, /profit/i] },
-  { category: 'Politics', patterns: [/election/i, /president/i, /congress/i, /senate/i, /minister/i, /government/i, /policy/i] },
-  { category: 'World', patterns: [/war/i, /diplomat/i, /border/i, /sanction/i, /nato/i, /united nations/i, /conflict/i] },
+  { category: 'Business', patterns: [/company/i, /earnings/i, /merger/i, /acquisition/i, /revenue/i, /profit/i, /融资/i, /并购/i, /营收/i, /利润/i] },
+  { category: 'Politics', patterns: [/election/i, /president/i, /congress/i, /senate/i, /minister/i, /government/i, /policy/i, /选举/i, /总统/i, /国会/i, /政府/i, /政策/i] },
+  { category: 'World', patterns: [/war/i, /diplomat/i, /border/i, /sanction/i, /nato/i, /united nations/i, /conflict/i, /战争/i, /外交/i, /边境/i, /制裁/i, /冲突/i] },
   { category: 'Science', patterns: [/research/i, /scientist/i, /space/i, /nasa/i, /physics/i, /biology/i] },
   { category: 'Health', patterns: [/health/i, /medical/i, /disease/i, /hospital/i, /vaccine/i, /drug/i] },
   { category: 'Energy', patterns: [/oil/i, /gas/i, /solar/i, /renewable/i, /power grid/i, /nuclear/i] },
   { category: 'Climate', patterns: [/climate/i, /emissions/i, /wildfire/i, /hurricane/i, /flood/i, /carbon/i] },
-  { category: 'China', patterns: [/\bchina\b/i, /beijing/i, /shanghai/i, /taiwan/i] },
+  { category: 'China', patterns: [/\bchina\b/i, /beijing/i, /shanghai/i, /taiwan/i, /中国/i, /北京/i, /上海/i, /台湾/i] },
   { category: 'Southeast Asia', patterns: [/malaysia/i, /singapore/i, /indonesia/i, /thailand/i, /vietnam/i, /philippines/i] },
 ];
 
 const THEME_RULES: ThemeRule[] = [
-  { name: 'Semiconductors', categoryHint: 'Technology', patterns: [/semiconductor/i, /\bchip(s|maker|makers)?\b/i, /tsmc/i, /nvidia/i, /advanced micro devices/i, /\bamd\b/i] },
-  { name: 'AI Models', categoryHint: 'AI', patterns: [/\bllm\b/i, /foundation model/i, /chatgpt/i, /gpt-4/i, /claude/i, /gemini/i, /model release/i] },
-  { name: 'AI Regulation', categoryHint: 'AI', patterns: [/ai safety/i, /ai act/i, /model regulation/i, /deepfake/i, /ai policy/i] },
+  { name: 'Semiconductors', categoryHint: 'Technology', patterns: [/semiconductor/i, /\bchip(s|maker|makers)?\b/i, /tsmc/i, /nvidia/i, /advanced micro devices/i, /\bamd\b/i, /半导体/i, /芯片/i, /英伟达/i, /台积电/i] },
+  { name: 'AI Models', categoryHint: 'AI', patterns: [/\bllm\b/i, /foundation model/i, /chatgpt/i, /gpt-4/i, /claude/i, /gemini/i, /model release/i, /大模型/i, /基础模型/i, /模型发布/i] },
+  { name: 'AI Regulation', categoryHint: 'AI', patterns: [/ai safety/i, /ai act/i, /model regulation/i, /deepfake/i, /ai policy/i, /人工智能监管/i, /AI监管/i, /深度伪造/i] },
   { name: 'Cybersecurity', categoryHint: 'Technology', patterns: [/cyber/i, /ransomware/i, /breach/i, /malware/i, /zero-day/i, /phishing/i] },
   { name: 'Cloud Infrastructure', categoryHint: 'Technology', patterns: [/cloud/i, /data center/i, /\bgpu cluster\b/i, /server farm/i] },
-  { name: 'Trade Policy', categoryHint: 'World', patterns: [/tariff/i, /export control/i, /trade war/i, /trade deal/i, /import restriction/i] },
+  { name: 'Trade Policy', categoryHint: 'World', patterns: [/tariff/i, /export control/i, /trade war/i, /trade deal/i, /import restriction/i, /关税/i, /出口管制/i, /贸易战/i] },
   { name: 'Monetary Policy', categoryHint: 'Markets', patterns: [/federal reserve/i, /\bfed\b/i, /interest rate/i, /rate cut/i, /rate hike/i, /central bank/i] },
   { name: 'Market Volatility', categoryHint: 'Markets', patterns: [/sell-off/i, /rally/i, /all-time high/i, /correction/i, /volatility/i] },
   { name: 'Energy Transition', categoryHint: 'Energy', patterns: [/renewable/i, /battery storage/i, /energy transition/i, /grid modernization/i, /clean energy/i] },
   { name: 'Oil and Gas', categoryHint: 'Energy', patterns: [/\boil\b/i, /\bgas\b/i, /opec/i, /lng/i, /crude/i] },
   { name: 'Electric Vehicles', categoryHint: 'Technology', patterns: [/\bev\b/i, /electric vehicle/i, /tesla/i, /battery plant/i] },
-  { name: 'Geopolitical Conflict', categoryHint: 'World', patterns: [/military/i, /airstrike/i, /missile/i, /troops/i, /ceasefire/i, /sanction/i] },
+  { name: 'Military and Defense', categoryHint: 'World', patterns: [/military/i, /defense/i, /army/i, /navy/i, /air force/i, /missile/i, /drone/i, /troops/i, /pla\b/i, /军方/i, /军事/i, /国防/i, /导弹/i, /无人机/i, /解放军/i] },
+  { name: 'Geopolitical Conflict', categoryHint: 'World', patterns: [/military/i, /airstrike/i, /missile/i, /troops/i, /ceasefire/i, /sanction/i, /conflict/i, /war/i, /空袭/i, /停火/i, /制裁/i, /冲突/i, /战争/i] },
   { name: 'Elections', categoryHint: 'Politics', patterns: [/election/i, /ballot/i, /campaign/i, /polling/i, /primary/i] },
   { name: 'Industrial Policy', categoryHint: 'Business', patterns: [/subsidy/i, /industrial policy/i, /factory investment/i, /incentive package/i] },
   { name: 'Open Source', categoryHint: 'Technology', patterns: [/open source/i, /github/i, /linux/i, /apache/i] },
@@ -56,7 +57,8 @@ const THEME_RULES: ThemeRule[] = [
   { name: 'Biotech', categoryHint: 'Health', patterns: [/biotech/i, /clinical trial/i, /gene therapy/i, /biopharma/i] },
   { name: 'Public Health', categoryHint: 'Health', patterns: [/outbreak/i, /public health/i, /epidemic/i, /vaccine/i, /hospital system/i] },
   { name: 'Climate Risk', categoryHint: 'Climate', patterns: [/wildfire/i, /flood/i, /heatwave/i, /storm surge/i, /extreme weather/i] },
-  { name: 'China Policy', categoryHint: 'China', patterns: [/\bchina\b/i, /beijing/i, /pla\b/i, /taiwan strait/i] },
+  { name: 'China Policy', categoryHint: 'China', patterns: [/\bchina\b/i, /beijing/i, /pla\b/i, /taiwan strait/i, /中国政策/i, /北京/i, /台海/i, /解放军/i] },
+  { name: 'US-China', categoryHint: 'World', patterns: [/u\.s\.-china/i, /us-china/i, /america.*china/i, /china.*america/i, /美国.*中国/i, /中美/i, /美中/i] },
 ];
 
 const LOCATION_SEEDS: LocationSeed[] = [

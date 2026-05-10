@@ -17,6 +17,15 @@ function extractThemes(articles: Array<{ primary_category: string | null }>) {
   ).slice(0, 6);
 }
 
+function stripThinkingProcess(text: string) {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/```(?:thinking|reasoning|thoughts)[\s\S]*?```/gi, '')
+    .replace(/^\s*(?:thinking|reasoning|thought process|chain of thought)\s*:\s*[\s\S]*?(?=^#{1,3}\s|\n\s*(?:Executive Summary|Key Themes|Why It Matters|执行摘要|关键主题|重要性分析)\b|$)/gim, '')
+    .replace(/^\s*(?:Here(?:'|’)s my reasoning|I(?:'|’)ll reason through this|Let me think)[\s\S]*?(?=^#{1,3}\s|\n\s*(?:Executive Summary|Key Themes|Why It Matters|执行摘要|关键主题|重要性分析)\b|$)/gim, '')
+    .trim();
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -129,6 +138,9 @@ One short paragraph.
 ## Why It Matters
 2-3 bullet points
 
+Do not include thinking, reasoning, chain-of-thought, analysis notes, or process commentary.
+Only return the final briefing sections.
+
 Stories:
 ${articlesText}
 
@@ -142,7 +154,7 @@ Storyline clusters:
 ${storylineText || 'none'}`;
 
     const localizedPrompt = locale === 'zh-CN'
-      ? prompt + '\n\nIMPORTANT: Write the entire response in Simplified Chinese (简体中文), including all section headings. Use these exact headings: ## 执行摘要, ## 关键主题, ## 重要性分析'
+      ? prompt + '\n\nIMPORTANT: Write the entire response in Simplified Chinese (简体中文), including all section headings. Use these exact headings: ## 执行摘要, ## 关键主题, ## 重要性分析. Do not include thinking, reasoning, chain-of-thought, or process commentary.'
       : prompt;
 
     const result = await generateText(
@@ -160,7 +172,7 @@ ${storylineText || 'none'}`;
       title: locale === 'zh-CN'
         ? `每日简报 ${new Date().toLocaleDateString()}`
         : `Daily Briefing ${new Date().toLocaleDateString()}`,
-      executiveSummary: result.text,
+      executiveSummary: stripThinkingProcess(result.text),
       keyThemes: extractThemes(topStories.map((story) => ({ primary_category: story.category }))),
       topStories,
       modelProvider: aiSettings.provider || 'ollama',

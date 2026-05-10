@@ -6,15 +6,15 @@ import { PlusCircle, RefreshCw, Settings } from 'lucide-react';
 import { AddFeedModal } from '@/components/ui/AddFeedModal';
 import { SettingsModal } from '@/components/ui/SettingsModal';
 import { StockTicker } from '@/components/ui/StockTicker';
-import { BriefingManager } from '@/components/BriefingManager';
 
 type AppChromeProps = {
   children?: React.ReactNode;
   renderContent?: (controls: { openAddFeedModal: () => void }) => React.ReactNode;
   onRefreshAll?: () => Promise<void> | void;
+  showAddFeedAction?: boolean;
 };
 
-export function AppChrome({ children, renderContent, onRefreshAll }: AppChromeProps) {
+export function AppChrome({ children, renderContent, onRefreshAll, showAddFeedAction = true }: AppChromeProps) {
   const [isAddFeedModalOpen, setIsAddFeedModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -39,8 +39,6 @@ export function AppChrome({ children, renderContent, onRefreshAll }: AppChromePr
       setRefreshMessage(null);
       try {
         await onRefreshAll();
-        setRefreshMessage('Saved feeds refreshed.');
-        setTimeout(() => setRefreshMessage(null), 2500);
       } catch (error) {
         console.error('Refresh all failed:', error);
         setRefreshMessage(error instanceof Error ? error.message : 'Refresh failed');
@@ -58,18 +56,19 @@ export function AppChrome({ children, renderContent, onRefreshAll }: AppChromePr
         className="w-full flex-shrink-0 bg-background-secondary"
         style={{ height: '28px', WebkitAppRegion: 'drag' } as React.CSSProperties}
       />
-      <BriefingManager />
       <TopNavBar
         pageActions={
           <>
-            <button 
-              onClick={openAddFeedModal}
-              title="Add Column"
-              className="p-2 text-foreground-secondary hover:text-foreground hover:bg-background-tertiary rounded-lg transition-colors flex items-center justify-center"
-            >
-              <PlusCircle className="w-5 h-5" />
-            </button>
-            <button 
+            {showAddFeedAction && (
+              <button
+                onClick={openAddFeedModal}
+                title="Add Column"
+                className="p-2 text-foreground-secondary hover:text-foreground hover:bg-background-tertiary rounded-lg transition-colors flex items-center justify-center"
+              >
+                <PlusCircle className="w-5 h-5" />
+              </button>
+            )}
+            <button
               onClick={handleRefreshAll}
               disabled={isRefreshing}
               title="Refresh All"
@@ -77,7 +76,7 @@ export function AppChrome({ children, renderContent, onRefreshAll }: AppChromePr
             >
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin text-accent' : ''}`} />
             </button>
-            <button 
+            <button
               onClick={openSettingsModal}
               title="Settings"
               className="p-2 text-foreground-secondary hover:text-foreground hover:bg-background-tertiary rounded-lg transition-colors flex items-center justify-center"

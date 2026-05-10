@@ -27,6 +27,7 @@ async function parseFeedFromUrl(fetchUrl: string) {
   const attempts: Array<() => Promise<FeedResponse>> = [
     async () => {
       const rssResponse = await fetch(fetchUrl, {
+        cache: 'no-store',
         headers: {
           'User-Agent': 'RSS-Deck/1.0 (RSS Reader Application)',
           Accept: 'application/rss+xml, application/xml, text/xml, application/atom+xml, */*',
@@ -171,7 +172,9 @@ export function normalizeFeedItemDate(input: {
     }
   }
 
-  return input.pubDate || input.isoDate || new Date().toISOString();
+  const rawDate = input.isoDate || input.pubDate;
+  const parsed = rawDate ? Date.parse(rawDate) : 0;
+  return parsed ? new Date(parsed).toISOString() : new Date().toISOString();
 }
 
 function extractThumbnail(item: Record<string, unknown>): string | undefined {

@@ -3,7 +3,7 @@ import { AppChrome } from '@/components/AppChrome';
 
 export default function AmbientPage() {
   return (
-    <AppChrome>
+    <AppChrome showAddFeedAction={false}>
       <AmbientWallPrototype embedded />
     </AppChrome>
   );

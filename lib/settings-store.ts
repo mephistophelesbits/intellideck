@@ -137,7 +137,7 @@ export function getDefaultSettingsSnapshot(): SettingsSnapshot {
       customSummaryPrompt: '',
     },
     briefingSettings: {
-      enabled: false,
+      enabled: true,
       times: ['08:00'],
       telegramEnabled: false,
       telegramToken: '',

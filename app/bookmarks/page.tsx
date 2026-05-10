@@ -36,7 +36,7 @@ export default function BookmarksPage() {
   };
 
   return (
-    <AppChrome onRefreshAll={handleRefreshAll}>
+    <AppChrome onRefreshAll={handleRefreshAll} showAddFeedAction={false}>
       <div className="flex h-full overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col border-r border-border">
           <header className="flex items-center justify-between px-5 py-3 border-b border-border bg-background-secondary flex-shrink-0">
@@ -81,7 +81,7 @@ export default function BookmarksPage() {
                   <>
                     <p className="text-lg font-medium">No Results</p>
                     <p className="text-sm mt-2 opacity-70">
-                      No bookmarks match "{searchQuery}"
+	                      No bookmarks match &quot;{searchQuery}&quot;
                     </p>
                   </>
                 )}

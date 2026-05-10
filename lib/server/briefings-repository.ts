@@ -65,6 +65,20 @@ export function getBriefings() {
   `).all().map(mapBriefingRow) as StoredBriefing[];
 }
 
+export function getLatestTodaySummary() {
+  const db = getDb();
+  const row = db.prepare(`
+    SELECT *
+    FROM briefings
+    WHERE (title LIKE 'Summary %' OR title LIKE '今日摘要%')
+      AND LENGTH(TRIM(executive_summary)) > 0
+    ORDER BY briefing_date DESC, created_at DESC
+    LIMIT 1
+  `).get();
+
+  return row ? mapBriefingRow(row) : null;
+}
+
 export function getBriefingById(id: string) {
   const db = getDb();
   const row = db.prepare(`SELECT * FROM briefings WHERE id = ?`).get(id);

@@ -5,7 +5,6 @@ import { Plus, Pencil, X, Check, Trash2, GripVertical, Loader2, ExternalLink, Al
 import { AppChrome } from '@/components/AppChrome';
 import { FeedList, FeedListWithItems } from '@/lib/types';
 import { cn } from '@/lib/utils';
-import Link from 'next/link';
 
 export default function ListsPage() {
     const [lists, setLists] = useState<FeedList[]>([]);
@@ -184,13 +183,13 @@ export default function ListsPage() {
     };
 
     return (
-        <AppChrome>
+        <AppChrome showAddFeedAction={false}>
             <div className="flex h-full overflow-hidden">
                 {/* Left Panel - List Directory */}
                 <div className="w-72 border-r border-border flex flex-col bg-background-secondary flex-shrink-0">
                     <div className="p-4 border-b border-border">
                         <div className="flex items-center justify-between mb-3">
-                            <h2 className="font-semibold">Feed Lists</h2>
+                            <h2 className="font-semibold">Sources & Lists</h2>
                             <button
                                 onClick={() => setIsCreatingNew(true)}
                                 className="p-1.5 hover:bg-background-tertiary rounded-lg transition-colors text-foreground-secondary hover:text-foreground"
