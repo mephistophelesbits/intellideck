@@ -5,6 +5,13 @@ import { Article } from '@/lib/types';
 import { getDb } from './db';
 import { classifyCategory, extractEntities, extractLocations, extractThemes } from './intelligence';
 import type { ScrapedArticle } from './article-scraper';
+import {
+  computePreferenceBoost,
+  getFeedbackCount,
+  getFeedbackValues,
+  getPreferenceWeightMap,
+  type RecommendationVariant,
+} from './preferences-repository';
 
 type KeywordCloudRow = {
   name: string;
@@ -106,6 +113,8 @@ const LOWER_PRIORITY_NEWS_TAGS = new Map<string, number>([
 ]);
 
 const GENERIC_POLITICS_PATTERN = /\b(pm|prime minister|minister|election|poll|parliament|congress|senate|president|campaign|judicial|justice)\b/i;
+const COLD_START_FEEDBACK_COUNT = 20;
+const PERSONALIZED_FEEDBACK_COUNT = 80;
 
 const LEGACY_DISPLAY_TAGS = new Set([
   'ai',
@@ -976,6 +985,19 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
   const futureSkew = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   const rowLimit = Math.max(limit * 8, 240);
+  const preferenceWeights = getPreferenceWeightMap();
+  const feedbackCount = getFeedbackCount();
+  const personalizationFactor = feedbackCount < COLD_START_FEEDBACK_COUNT
+    ? 0.35
+    : feedbackCount < PERSONALIZED_FEEDBACK_COUNT
+      ? 0.7
+      : 1;
+  const explorationRate = feedbackCount < COLD_START_FEEDBACK_COUNT
+    ? 0.3
+    : feedbackCount < PERSONALIZED_FEEDBACK_COUNT
+      ? 0.15
+      : 0.08;
+  const explorationCount = Math.max(1, Math.round(limit * explorationRate));
 
   const rows = db.prepare(`
     SELECT
@@ -1060,7 +1082,7 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       category: article.primary_category,
       tags: parsedTags,
     });
-    const priorityScore = Number(((article.importance_score ?? 0) + recencyBonus + entityBonus + themeBonus + locationBonus + categoryBonus + interestBonus).toFixed(2));
+    const basePriorityScore = Number(((article.importance_score ?? 0) + recencyBonus + entityBonus + themeBonus + locationBonus + categoryBonus + interestBonus).toFixed(2));
     const reasons = buildPriorityReasons({
       ageHours,
       primaryCategory: article.primary_category,
@@ -1070,6 +1092,14 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       importanceScore: article.importance_score ?? 0,
     });
     const tags = getDisplayTags(parsedTags, article.primary_category, article.source_title);
+    const preferenceBoost = Number((computePreferenceBoost({
+      category: article.primary_category,
+      sourceTitle: article.source_title,
+      tags,
+      tagDetails: parsedTags,
+      weights: preferenceWeights,
+    }) * personalizationFactor).toFixed(2));
+    const priorityScore = Number((basePriorityScore + preferenceBoost).toFixed(2));
 
     const urgency: 'urgent' | 'important' | 'watch' = priorityScore >= 135 || (ageHours <= 4 && priorityScore >= 95)
       ? 'urgent'
@@ -1092,10 +1122,13 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       category: article.primary_category,
       tags,
       tagDetails: parsedTags,
+      basePriorityScore,
       priorityScore,
+      preferenceBoost,
       interestBonus,
       urgency,
       reasons,
+      recommendationVariant: (preferenceBoost === 0 ? 'baseline' : 'personalized') as RecommendationVariant,
     };
   });
 
@@ -1109,11 +1142,24 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
     .slice(0, Math.min(8, limit));
   const topScored = scored
     .sort((a, b) => b.priorityScore - a.priorityScore)
-    .slice(0, limit);
+    .slice(0, Math.max(1, limit - explorationCount));
   const selected = new Map<string, (typeof scored)[number]>();
   for (const item of [...latestRelevant, ...topScored]) {
     selected.set(item.id, item);
   }
+  const explorationItems = scored
+    .filter((item) => !selected.has(item.id))
+    .filter((item) => item.basePriorityScore >= 45 || item.interestBonus > 0 || item.category !== 'General')
+    .sort((a, b) => getExplorationScore(b.id) - getExplorationScore(a.id))
+    .slice(0, explorationCount)
+    .map((item) => ({
+      ...item,
+      recommendationVariant: 'exploration' as const,
+    }));
+  for (const item of explorationItems) {
+    selected.set(item.id, item);
+  }
+  const feedbackValues = getFeedbackValues(Array.from(selected.keys()));
 
   return Array.from(selected.values())
     .sort((a, b) => {
@@ -1137,9 +1183,23 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       tags: item.tags,
       tagDetails: item.tagDetails,
       priorityScore: item.priorityScore,
+      basePriorityScore: item.basePriorityScore,
+      preferenceBoost: item.preferenceBoost,
+      recommendationVariant: item.recommendationVariant as RecommendationVariant,
+      feedbackValue: feedbackValues.get(item.id) ?? 0,
       urgency: item.urgency,
       reasons: item.reasons,
     }));
+}
+
+function getExplorationScore(articleId: string) {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${todayKey}:${articleId}`)
+    .digest('hex')
+    .slice(0, 8);
+  return Number.parseInt(digest, 16) / 0xffffffff;
 }
 
 export function getLocationDetail(locationName: string, days = 7) {

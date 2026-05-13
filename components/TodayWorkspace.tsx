@@ -10,6 +10,8 @@ import {
   Newspaper,
   RefreshCw,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
 } from 'lucide-react';
 import { AppChrome } from '@/components/AppChrome';
 import { ArticlePreviewPanel } from '@/components/ui/ArticlePreviewPanel';
@@ -51,6 +53,10 @@ type PriorityItem = {
   aiScore?: number;
   curationReason?: string;
   priorityScore: number;
+  basePriorityScore?: number;
+  preferenceBoost?: number;
+  recommendationVariant?: 'baseline' | 'personalized' | 'exploration';
+  feedbackValue?: -1 | 0 | 1;
   urgency: 'urgent' | 'important' | 'watch';
   reasons: string[];
 };
@@ -137,10 +143,11 @@ export function TodayWorkspace() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [columnWidths, setColumnWidths] = useState({ briefing: 360, feed: 500 });
+  const [feedbackPendingIds, setFeedbackPendingIds] = useState<Set<string>>(() => new Set());
   const refreshInFlightRef = useRef(false);
   const summaryInFlightRef = useRef(false);
   const lastSummaryAttemptRef = useRef(0);
-  const itemRefs = useRef(new Map<string, HTMLButtonElement>());
+  const itemRefs = useRef(new Map<string, HTMLElement>());
   const resizeRef = useRef<{
     panel: 'briefing' | 'feed';
     startX: number;
@@ -346,6 +353,61 @@ export function TodayWorkspace() {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
+
+  const handleFeedback = useCallback(async (
+    item: PriorityItem,
+    value: -1 | 1,
+    event: ReactMouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const nextValue: -1 | 0 | 1 = item.feedbackValue === value ? 0 : value;
+    const previousValue = item.feedbackValue ?? 0;
+
+    setFeedbackPendingIds((current) => new Set(current).add(item.id));
+    setPayload((current) => current
+      ? {
+          ...current,
+          priorityItems: current.priorityItems.map((priorityItem) =>
+            priorityItem.id === item.id
+              ? { ...priorityItem, feedbackValue: nextValue }
+              : priorityItem
+          ),
+        }
+      : current);
+
+    try {
+      const response = await fetch('/api/today/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ articleId: item.id, value: nextValue }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save feedback');
+      }
+      await loadToday();
+    } catch (error) {
+      setPayload((current) => current
+        ? {
+            ...current,
+            priorityItems: current.priorityItems.map((priorityItem) =>
+              priorityItem.id === item.id
+                ? { ...priorityItem, feedbackValue: previousValue }
+                : priorityItem
+            ),
+          }
+        : current);
+      setMessage(error instanceof Error ? error.message : 'Failed to save feedback.');
+    } finally {
+      setFeedbackPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+    }
+  }, [loadToday]);
 
   const handleGenerateSummary = useCallback(async (silent = false, force = true) => {
     if (summaryInFlightRef.current) return;
@@ -554,9 +616,10 @@ export function TodayWorkspace() {
 
                   <div className="space-y-3">
                     {filteredPriorityItems.length ? filteredPriorityItems.map((item) => (
-                      <button
+                      <article
                         key={item.id}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         ref={(node) => {
                           if (node) {
                             itemRefs.current.set(item.id, node);
@@ -566,13 +629,54 @@ export function TodayWorkspace() {
                         }}
                         data-testid="today-priority-item"
                         onClick={() => setSelectedArticle(toArticle(item))}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter' && event.key !== ' ') return;
+                          event.preventDefault();
+                          setSelectedArticle(toArticle(item));
+                        }}
                         className={cn(
-                          'block w-full rounded-lg border bg-background p-3 text-left transition-colors hover:border-accent',
+                          'block w-full cursor-pointer rounded-lg border bg-background p-3 text-left transition-colors hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40',
                           selectedArticle?.id === item.id ? 'border-accent bg-accent/10' : 'border-border'
                         )}
                       >
                         <div className="min-w-0">
-                          <h3 className="text-lg font-semibold leading-snug tracking-normal">{item.title}</h3>
+                          <div className="flex items-start gap-3">
+                            <h3 className="min-w-0 flex-1 text-lg font-semibold leading-snug tracking-normal">{item.title}</h3>
+                            <div className="flex shrink-0 items-center gap-1" aria-label="Story preference controls">
+                              <button
+                                type="button"
+                                title="Like this story"
+                                aria-label="Like this story"
+                                aria-pressed={(item.feedbackValue ?? 0) === 1}
+                                disabled={feedbackPendingIds.has(item.id)}
+                                onClick={(event) => void handleFeedback(item, 1, event)}
+                                className={cn(
+                                  'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50',
+                                  (item.feedbackValue ?? 0) === 1
+                                    ? 'border-accent bg-accent text-[color:var(--accent-foreground)]'
+                                    : 'border-border bg-background-secondary text-foreground-secondary hover:border-accent hover:text-foreground'
+                                )}
+                              >
+                                <ThumbsUp className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Dislike this story"
+                                aria-label="Dislike this story"
+                                aria-pressed={(item.feedbackValue ?? 0) === -1}
+                                disabled={feedbackPendingIds.has(item.id)}
+                                onClick={(event) => void handleFeedback(item, -1, event)}
+                                className={cn(
+                                  'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50',
+                                  (item.feedbackValue ?? 0) === -1
+                                    ? 'border-red-500/70 bg-red-500/15 text-red-300'
+                                    : 'border-border bg-background-secondary text-foreground-secondary hover:border-accent hover:text-foreground'
+                                )}
+                              >
+                                <ThumbsDown className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
                           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-foreground-secondary">
                             <span>{item.sourceTitle || t('today.unknownSource')}</span>
                             <span aria-hidden="true">•</span>
@@ -582,7 +686,7 @@ export function TodayWorkspace() {
                             <p className="mt-2 line-clamp-2 text-sm text-foreground-secondary">{item.summary}</p>
                           )}
                         </div>
-                      </button>
+                      </article>
                     )) : (
                       <div className="rounded-lg border border-dashed border-border bg-background p-5 text-sm text-foreground-secondary">
                         {t('today.noPriorityItems')}

@@ -218,6 +218,37 @@ function initializeDatabase(db: DatabaseSync) {
       read_at    TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS article_feedback (
+      id TEXT PRIMARY KEY,
+      article_id TEXT NOT NULL,
+      value INTEGER NOT NULL CHECK(value IN (-1, 1)),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(article_id),
+      FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS article_impressions (
+      id TEXT PRIMARY KEY,
+      article_id TEXT NOT NULL,
+      surface TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      score REAL NOT NULL,
+      variant TEXT NOT NULL,
+      shown_at TEXT NOT NULL,
+      FOREIGN KEY(article_id) REFERENCES articles(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS preference_weights (
+      feature_type TEXT NOT NULL,
+      feature_key TEXT NOT NULL,
+      weight REAL NOT NULL,
+      positive_count INTEGER NOT NULL DEFAULT 0,
+      negative_count INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(feature_type, feature_key)
+    );
+
     CREATE UNIQUE INDEX IF NOT EXISTS idx_feed_list_items_list_feed
       ON feed_list_items(list_id, feed_id);
 
@@ -234,6 +265,9 @@ function initializeDatabase(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_article_entities_entity_id ON article_entities(entity_id);
     CREATE INDEX IF NOT EXISTS idx_article_themes_theme_id ON article_themes(theme_id);
     CREATE INDEX IF NOT EXISTS idx_search_rules_updated_at ON search_rules(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_article_feedback_article_id ON article_feedback(article_id);
+    CREATE INDEX IF NOT EXISTS idx_article_impressions_surface_shown ON article_impressions(surface, shown_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_preference_weights_type_weight ON preference_weights(feature_type, weight DESC);
   `);
 
   ensureColumn(db, 'saved_feeds', 'site_url', 'TEXT');

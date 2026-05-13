@@ -5,6 +5,7 @@ import { scrapeArticle, type ScrapedArticle } from '@/lib/server/article-scraper
 import { generateText, type AIProvider } from '@/lib/ai/providers';
 import { getDefaultSettingsSnapshot } from '@/lib/settings-store';
 import { getPersistedSettings } from '@/lib/server/settings-repository';
+import { getPreferenceStateSignature, recordPriorityFeedImpressions } from '@/lib/server/preferences-repository';
 
 type PriorityItem = ReturnType<typeof getTodayPriorityFeed>[number];
 
@@ -216,12 +217,13 @@ function getCurationSettingsSignature() {
   const provider = settings.aiSettings.provider || 'ollama';
 
   return JSON.stringify({
-    policyVersion: 2,
+    policyVersion: 4,
     enabled: settings.aiSettings.enabled,
     provider,
     model: settings.aiSettings.model || null,
     ollamaUrl: provider === 'ollama' ? settings.aiSettings.ollamaUrl : null,
     hasApiKey: Boolean(settings.aiSettings.apiKeys?.[provider]),
+    preferenceState: getPreferenceStateSignature(),
   });
 }
 
@@ -288,6 +290,7 @@ async function buildFreshTodayPayload(input: {
     createdAt: Date.now(),
     payload,
   };
+  recordPriorityFeedImpressions(curation.items);
   scheduleFullArticleDownloads(input.signature, curation.items);
   return payload;
 }
@@ -336,6 +339,7 @@ function buildProvisionalTodayPayload(input: {
     createdAt: Date.now(),
     payload,
   };
+  recordPriorityFeedImpressions(priorityItems);
 
   return payload;
 }
