@@ -28,6 +28,17 @@ This is not a reader with AI bolted on. **The AI is the point.**
 
 ---
 
+## What's New in v3.3
+
+### Feed Wall. Smarter ranking. MCP built in.
+
+- **Feed Wall** — a new ambient fullscreen view that spreads all your feeds across the screen. Passive reading mode for when you want the news to wash over you
+- **Today Priority Feed** — AI-ranked daily reading list that learns from your feedback. Thumbs up/down teaches IntelliDeck what matters to you, improving every session
+- **Server-side similarity scoring** — related stories are now detected and scored at ingest, not just client-side. IntelliDeck surfaces cross-source coverage of trending topics automatically
+- **MCP server bundled** — `intellideck-mcp.mjs` and `intellideck-mcp.py` now ship directly with IntelliDeck. Connect to Claude Desktop or any MCP-compatible agent without a separate install
+
+---
+
 ## What's New in v3.0
 
 ### New name. New logo. Native desktop app.
@@ -141,19 +152,34 @@ ollama pull llama3.2
 
 ---
 
-## 🦞 IntelliDeck-MCP — For AI Agents
+## 🦞 IntelliDeck MCP — For AI Agents
 
-Need to pipe curated news into an AI agent? **[IntelliDeck-MCP](https://github.com/mephistophelesbits/intellideck-mcp)** is a companion MCP server that wraps your feeds in a token-efficient, agent-friendly format.
+**IntelliDeck ships a built-in MCP server** (`intellideck-mcp.mjs` / `intellideck-mcp.py`) that lets Claude Desktop or any MCP-compatible agent read directly from your local IntelliDeck database — no HTTP, no separate install, no OPML export step.
 
+Register it once in your `claude_desktop_config.json`:
+
+```json
+"intellideck": {
+  "command": "node",
+  "args": ["/path/to/IntelliDeck/intellideck-mcp.mjs"]
+}
 ```
-IntelliDeck → Export OPML → IntelliDeck-MCP → AI Agent
-```
 
-[Learn more →](https://github.com/mephistophelesbits/intellideck-mcp)
+Your agent can then call `get_today_priority_feed`, `get_column_articles`, `get_latest_briefing`, and `list_columns` against your live feed data.
+
+> A standalone companion repo is also available at **[IntelliDeck-MCP](https://github.com/mephistophelesbits/intellideck-mcp)** for users who run IntelliDeck on a separate machine.
 
 ---
 
 ## Changelog
+
+### v3.3.0 — May 2026
+- **Feed Wall** — ambient fullscreen multi-feed view
+- **Today Priority Feed** — AI-ranked reading list with preference feedback loop
+- **Server-side article similarity scoring** — related story detection and boost at ingest
+- **MCP server bundled** — `intellideck-mcp.mjs` and `intellideck-mcp.py` ship with the app
+- Stored content API — preview panel loads saved article content from DB when available
+- Dev database corruption recovery
 
 ### v3.0.0 — April 2026
 - **Rebranded** RSS Deck → IntelliDeck
