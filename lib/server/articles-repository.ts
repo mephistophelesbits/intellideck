@@ -2,6 +2,7 @@ import 'server-only';
 
 import crypto from 'crypto';
 import { Article } from '@/lib/types';
+import { calculateSimilarity, extractKeywords } from '@/lib/text-similarity';
 import { getDb } from './db';
 import { classifyCategory, extractEntities, extractLocations, extractThemes } from './intelligence';
 import type { ScrapedArticle } from './article-scraper';
@@ -113,6 +114,31 @@ const LOWER_PRIORITY_NEWS_TAGS = new Map<string, number>([
 ]);
 
 const GENERIC_POLITICS_PATTERN = /\b(pm|prime minister|minister|election|poll|parliament|congress|senate|president|campaign|judicial|justice)\b/i;
+const MAX_STORED_ARTICLE_CONTENT_CHARS = 80_000;
+const FRESH_CURRENT_AFFAIRS_ANCHOR_COUNT = 4;
+const FRESH_CURRENT_AFFAIRS_MAX_AGE_HOURS = 4;
+const FRESH_CURRENT_AFFAIRS_MIN_SCORE = 115;
+const SIMILAR_STORY_MIN_SCORE = 0.16;
+const SIMILAR_STORY_TITLE_MIN_SCORE = 0.2;
+const MAX_SIMILAR_STORY_BOOST = 28;
+const SIMILAR_STORY_BOILERPLATE_KEYWORDS = new Set([
+  'article',
+  'comments',
+  'comment',
+  'points',
+  'submitted',
+  'source',
+  'https',
+  'http',
+  'www',
+  'url',
+]);
+const LOW_SIGNAL_CURRENT_AFFAIRS_CATEGORIES = new Set([
+  'Entertainment',
+  'Health',
+  'Lifestyle',
+  'Sports',
+]);
 const COLD_START_FEEDBACK_COUNT = 20;
 const PERSONALIZED_FEEDBACK_COUNT = 80;
 
@@ -199,7 +225,23 @@ type EnrichmentStatements = {
   insertArticleTheme: ReturnType<ReturnType<typeof getDb>['prepare']>;
 };
 
-export function persistArticles(sourceUrl: string, sourceTitle: string | undefined, articles: Article[]) {
+type PersistArticlesOptions = {
+  rebuildTrends?: boolean;
+};
+
+function truncateStoredArticleContent(value: string | null | undefined) {
+  if (!value) return null;
+  return value.length > MAX_STORED_ARTICLE_CONTENT_CHARS
+    ? value.slice(0, MAX_STORED_ARTICLE_CONTENT_CHARS)
+    : value;
+}
+
+export function persistArticles(
+  sourceUrl: string,
+  sourceTitle: string | undefined,
+  articles: Article[],
+  options: PersistArticlesOptions = {}
+) {
   if (articles.length === 0) return;
 
   const db = getDb();
@@ -224,7 +266,7 @@ export function persistArticles(sourceUrl: string, sourceTitle: string | undefin
       content_snippet = excluded.content_snippet,
       raw_content = CASE
         WHEN length(COALESCE(articles.raw_content, '')) > length(COALESCE(excluded.raw_content, ''))
-          THEN articles.raw_content
+          THEN substr(articles.raw_content, 1, ${MAX_STORED_ARTICLE_CONTENT_CHARS})
         ELSE excluded.raw_content
       END,
       image_url = excluded.image_url,
@@ -233,51 +275,62 @@ export function persistArticles(sourceUrl: string, sourceTitle: string | undefin
   `);
   const enrichmentStatements = createEnrichmentStatements(db);
 
-  for (const article of articles) {
-    const canonicalUrl = article.link || article.id;
-    const articleId = canonicalUrl;
-    articleStatement.run(
-      articleId,
-      sourceUrl,
-      sourceTitle ?? null,
-      canonicalUrl,
-      article.title,
-      article.pubDate || null,
-      article.author || null,
-      article.contentSnippet || null,
-      article.content || null,
-      null,
-      null,
-      null,
-      article.thumbnail || null,
-      hashArticle(article),
-      now,
-      now
-    );
-    upsertArticleEnrichment(enrichmentStatements, {
-      articleId,
-      title: article.title,
-      contentSnippet: article.contentSnippet || null,
-      rawContent: article.content || null,
-      sourceTitle: sourceTitle ?? null,
-      pubDate: article.pubDate || null,
-      analyzedAt: now,
-    });
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const article of articles) {
+      const canonicalUrl = article.link || article.id;
+      const articleId = canonicalUrl;
+      articleStatement.run(
+        articleId,
+        sourceUrl,
+        sourceTitle ?? null,
+        canonicalUrl,
+        article.title,
+        article.pubDate || null,
+        article.author || null,
+        article.contentSnippet || null,
+        truncateStoredArticleContent(article.content),
+        null,
+        null,
+        null,
+        article.thumbnail || null,
+        hashArticle(article),
+        now,
+        now
+      );
+      upsertArticleEnrichment(enrichmentStatements, {
+        articleId,
+        title: article.title,
+        contentSnippet: article.contentSnippet || null,
+        rawContent: truncateStoredArticleContent(article.content),
+        sourceTitle: sourceTitle ?? null,
+        pubDate: article.pubDate || null,
+        analyzedAt: now,
+      });
+    }
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
   }
 
-  rebuildTrendSnapshots();
+  if (options.rebuildTrends !== false) {
+    rebuildTrendSnapshots();
+  }
 }
 
 export function updateArticleFullContent(articleId: string, scraped: ScrapedArticle) {
   const db = getDb();
   const analyzedAt = new Date().toISOString();
+  const rawContent = truncateStoredArticleContent(scraped.content);
+  const textContent = truncateStoredArticleContent(scraped.textContent);
 
   db.prepare(`
     UPDATE articles
     SET
       raw_content = CASE
         WHEN length(COALESCE(raw_content, '')) > length(?)
-          THEN raw_content
+          THEN substr(raw_content, 1, ${MAX_STORED_ARTICLE_CONTENT_CHARS})
         ELSE ?
       END,
       scraped_html = ?,
@@ -290,10 +343,10 @@ export function updateArticleFullContent(articleId: string, scraped: ScrapedArti
       author = COALESCE(author, ?)
     WHERE id = ? OR canonical_url = ?
   `).run(
-    scraped.content,
-    scraped.content,
-    scraped.content,
-    scraped.textContent,
+    rawContent,
+    rawContent,
+    rawContent,
+    textContent,
     scraped.excerpt || scraped.textContent.slice(0, 300),
     scraped.byline,
     articleId,
@@ -1000,6 +1053,26 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
   const explorationCount = Math.max(1, Math.round(limit * explorationRate));
 
   const rows = db.prepare(`
+    WITH candidate_articles AS (
+      SELECT
+        id,
+        canonical_url,
+        title,
+        published_at,
+        updated_at,
+        source_title,
+        source_url,
+        author,
+        content_snippet,
+        raw_content,
+        image_url,
+        created_at
+      FROM articles
+      WHERE COALESCE(published_at, created_at) >= ?
+        AND COALESCE(published_at, created_at) <= ?
+      ORDER BY COALESCE(published_at, created_at) DESC, updated_at DESC
+      LIMIT ?
+    )
     SELECT
       a.id,
       a.canonical_url,
@@ -1019,13 +1092,11 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       COUNT(DISTINCT ae.entity_id) AS entity_count,
       COUNT(DISTINCT at.theme_id) AS theme_count,
       COUNT(DISTINCT al.location_id) AS location_count
-    FROM articles a
+    FROM candidate_articles a
     LEFT JOIN article_analysis aa ON aa.article_id = a.id
     LEFT JOIN article_entities ae ON ae.article_id = a.id
     LEFT JOIN article_themes at ON at.article_id = a.id
     LEFT JOIN article_locations al ON al.article_id = a.id
-    WHERE COALESCE(a.published_at, a.created_at) >= ?
-      AND COALESCE(a.published_at, a.created_at) <= ?
     GROUP BY
       a.id,
       a.canonical_url,
@@ -1044,7 +1115,7 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       a.created_at
     ORDER BY COALESCE(a.published_at, a.created_at) DESC, a.updated_at DESC, aa.importance_score DESC
     LIMIT ?
-  `).all(cutoff, futureSkew, rowLimit) as Array<{
+  `).all(cutoff, futureSkew, rowLimit, rowLimit) as Array<{
     id: string;
     canonical_url: string;
     title: string;
@@ -1065,6 +1136,8 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
     location_count: number;
   }>;
 
+  const similarCoverage = computeSimilarCoverage(rows);
+
   const scored = rows.map((article) => {
     const displayDate = article.published_at || article.created_at;
     const displayTime = new Date(displayDate).getTime();
@@ -1074,6 +1147,11 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
     const themeBonus = Math.min(18, article.theme_count * 3);
     const locationBonus = Math.min(10, article.location_count * 2.5);
     const categoryBonus = article.primary_category && article.primary_category !== 'General' ? 8 : 0;
+    const similarStory = similarCoverage.get(article.id) ?? {
+      similarPostCount: 0,
+      similarSourceCount: 0,
+      similarStoryBoost: 0,
+    };
     const parsedTags = parseArticleTags(article.tags_json);
     const interestBonus = computePriorityInterestBonus({
       title: article.title,
@@ -1082,7 +1160,7 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       category: article.primary_category,
       tags: parsedTags,
     });
-    const basePriorityScore = Number(((article.importance_score ?? 0) + recencyBonus + entityBonus + themeBonus + locationBonus + categoryBonus + interestBonus).toFixed(2));
+    const basePriorityScore = Number(((article.importance_score ?? 0) + recencyBonus + entityBonus + themeBonus + locationBonus + categoryBonus + interestBonus + similarStory.similarStoryBoost).toFixed(2));
     const reasons = buildPriorityReasons({
       ageHours,
       primaryCategory: article.primary_category,
@@ -1090,6 +1168,7 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       themeCount: article.theme_count,
       locationCount: article.location_count,
       importanceScore: article.importance_score ?? 0,
+      similarPostCount: similarStory.similarPostCount,
     });
     const tags = getDisplayTags(parsedTags, article.primary_category, article.source_title);
     const preferenceBoost = Number((computePreferenceBoost({
@@ -1125,13 +1204,25 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       basePriorityScore,
       priorityScore,
       preferenceBoost,
+      similarPostCount: similarStory.similarPostCount,
+      similarSourceCount: similarStory.similarSourceCount,
+      similarStoryBoost: similarStory.similarStoryBoost,
       interestBonus,
+      ageHours,
       urgency,
       reasons,
       recommendationVariant: (preferenceBoost === 0 ? 'baseline' : 'personalized') as RecommendationVariant,
     };
   });
 
+  const freshCurrentAffairs = scored
+    .filter((item) =>
+      item.ageHours <= FRESH_CURRENT_AFFAIRS_MAX_AGE_HOURS &&
+      item.priorityScore >= FRESH_CURRENT_AFFAIRS_MIN_SCORE &&
+      !LOW_SIGNAL_CURRENT_AFFAIRS_CATEGORIES.has(item.category || '')
+    )
+    .sort((a, b) => new Date(b.publishedAt || b.updatedAt).getTime() - new Date(a.publishedAt || a.updatedAt).getTime())
+    .slice(0, FRESH_CURRENT_AFFAIRS_ANCHOR_COUNT);
   const latestRelevant = scored
     .filter((item) =>
       item.interestBonus > 0 ||
@@ -1144,7 +1235,7 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
     .sort((a, b) => b.priorityScore - a.priorityScore)
     .slice(0, Math.max(1, limit - explorationCount));
   const selected = new Map<string, (typeof scored)[number]>();
-  for (const item of [...latestRelevant, ...topScored]) {
+  for (const item of [...freshCurrentAffairs, ...latestRelevant, ...topScored]) {
     selected.set(item.id, item);
   }
   const explorationItems = scored
@@ -1185,11 +1276,162 @@ export function getTodayPriorityFeed(limit = 24, days = 2) {
       priorityScore: item.priorityScore,
       basePriorityScore: item.basePriorityScore,
       preferenceBoost: item.preferenceBoost,
+      similarPostCount: item.similarPostCount,
+      similarSourceCount: item.similarSourceCount,
+      similarStoryBoost: item.similarStoryBoost,
       recommendationVariant: item.recommendationVariant as RecommendationVariant,
       feedbackValue: feedbackValues.get(item.id) ?? 0,
       urgency: item.urgency,
       reasons: item.reasons,
     }));
+}
+
+function computeSimilarCoverage(rows: Array<{
+  id: string;
+  title: string;
+  content_snippet: string | null;
+  source_title: string | null;
+  source_url: string;
+  primary_category: string | null;
+  tags_json: string | null;
+}>) {
+  const coverage = new Map<string, {
+    similarIds: Set<string>;
+    sourceKeys: Set<string>;
+  }>();
+  const indexed = rows.map((row) => ({
+    id: row.id,
+    sourceKey: (row.source_title || row.source_url || 'unknown').trim().toLowerCase(),
+    titleKeywords: extractSimilarityKeywords(row.title),
+    keywords: extractSimilarityKeywords(`${row.title}\n${row.content_snippet ?? ''}`),
+    contextTokens: extractSimilarityContext(row),
+  }));
+
+  for (const item of indexed) {
+    coverage.set(item.id, { similarIds: new Set(), sourceKeys: new Set() });
+  }
+
+  for (let i = 0; i < indexed.length; i += 1) {
+    const left = indexed[i];
+    if (left.keywords.length === 0) continue;
+
+    for (let j = i + 1; j < indexed.length; j += 1) {
+      const right = indexed[j];
+      if (right.keywords.length === 0) continue;
+
+      if (!isContextuallySimilar(left, right)) continue;
+
+      coverage.get(left.id)?.similarIds.add(right.id);
+      coverage.get(left.id)?.sourceKeys.add(right.sourceKey);
+      coverage.get(right.id)?.similarIds.add(left.id);
+      coverage.get(right.id)?.sourceKeys.add(left.sourceKey);
+    }
+  }
+
+  const result = new Map<string, {
+    similarPostCount: number;
+    similarSourceCount: number;
+    similarStoryBoost: number;
+  }>();
+
+  for (const [id, item] of coverage.entries()) {
+    const similarPostCount = item.similarIds.size;
+    const similarSourceCount = item.sourceKeys.size;
+    const similarStoryBoost = Number(Math.min(
+      MAX_SIMILAR_STORY_BOOST,
+      similarSourceCount * 5 + Math.min(similarPostCount, 6) * 2
+    ).toFixed(2));
+
+    result.set(id, {
+      similarPostCount,
+      similarSourceCount,
+      similarStoryBoost,
+    });
+  }
+
+  return result;
+}
+
+function isContextuallySimilar(
+  left: {
+    titleKeywords: string[];
+    keywords: string[];
+    contextTokens: Set<string>;
+  },
+  right: {
+    titleKeywords: string[];
+    keywords: string[];
+    contextTokens: Set<string>;
+  }
+) {
+  const { score, matchedKeywords } = calculateSimilarity(left.keywords, right.keywords);
+  if (score < SIMILAR_STORY_MIN_SCORE || matchedKeywords.length < 2) return false;
+
+  const titleSimilarity = calculateSimilarity(left.titleKeywords, right.titleKeywords);
+  const sharedContextCount = countSharedValues(left.contextTokens, right.contextTokens);
+
+  return (
+    sharedContextCount > 0 ||
+    (
+      titleSimilarity.score >= SIMILAR_STORY_TITLE_MIN_SCORE &&
+      titleSimilarity.matchedKeywords.length >= 2
+    )
+  );
+}
+
+function countSharedValues(left: Set<string>, right: Set<string>) {
+  let count = 0;
+  for (const value of left) {
+    if (right.has(value)) count += 1;
+  }
+  return count;
+}
+
+function extractSimilarityContext(row: {
+  primary_category: string | null;
+  tags_json: string | null;
+}) {
+  const contextTokens = new Set<string>();
+  const category = normalizeSimilarityToken(row.primary_category);
+  if (category && category !== 'general') contextTokens.add(`category:${category}`);
+
+  for (const tag of parseArticleTags(row.tags_json)) {
+    if (tag.type === 'source') continue;
+    const normalized = normalizeSimilarityToken(tag.name);
+    if (!normalized || SIMILAR_STORY_BOILERPLATE_KEYWORDS.has(normalized)) continue;
+    contextTokens.add(`${tag.type}:${normalized}`);
+  }
+
+  return contextTokens;
+}
+
+function normalizeSimilarityToken(value: string | null | undefined) {
+  return value?.replace(/\s+/g, ' ').trim().toLowerCase() || '';
+}
+
+function extractSimilarityKeywords(text: string) {
+  const cleanedText = text
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\b(article|comments?)\s+url\b/gi, ' ')
+    .replace(/\b\d+\s+(points?|comments?)\b/gi, ' ');
+  const baseKeywords = extractKeywords(cleanedText)
+    .filter((keyword) => !SIMILAR_STORY_BOILERPLATE_KEYWORDS.has(keyword));
+  const cjkKeywords = extractCjkBigrams(cleanedText);
+
+  return Array.from(new Set([...baseKeywords, ...cjkKeywords])).slice(0, 24);
+}
+
+function extractCjkBigrams(text: string) {
+  const matches = text.match(/[\u3400-\u9fff]{2,}/g) ?? [];
+  const bigrams: string[] = [];
+
+  for (const match of matches) {
+    for (let index = 0; index < match.length - 1; index += 1) {
+      bigrams.push(match.slice(index, index + 2));
+    }
+  }
+
+  return bigrams.slice(0, 18);
 }
 
 function getExplorationScore(articleId: string) {
@@ -1703,6 +1945,7 @@ function buildPriorityReasons(input: {
   themeCount: number;
   locationCount: number;
   importanceScore: number;
+  similarPostCount: number;
 }) {
   const reasons: string[] = [];
 
@@ -1714,6 +1957,9 @@ function buildPriorityReasons(input: {
   }
   if (input.primaryCategory && input.primaryCategory !== 'General') {
     reasons.push(`${input.primaryCategory} signal`);
+  }
+  if (input.similarPostCount > 0) {
+    reasons.push(`${input.similarPostCount} similar ${input.similarPostCount === 1 ? 'post' : 'posts'}`);
   }
   if (input.entityCount >= 3) {
     reasons.push('multiple key entities');
@@ -2004,6 +2250,10 @@ function rebuildTrendSnapshots() {
       insertStatement.run(generateSnapshotId(snapshotDate, windowType, 'theme_mentions', row.metric_key), snapshotDate, windowType, 'theme_mentions', row.metric_key, row.value, now);
     }
   }
+}
+
+export function rebuildArticleTrendSnapshots() {
+  rebuildTrendSnapshots();
 }
 
 function currentSnapshotDate() {

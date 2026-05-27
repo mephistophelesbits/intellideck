@@ -1,6 +1,5 @@
 'use client';
 
-import { X } from 'lucide-react';
 import { Article } from '@/lib/types';
 import { ArticlePreviewPanel } from '@/components/ui/ArticlePreviewPanel';
 import { cn } from '@/lib/utils';
@@ -30,16 +29,6 @@ export function ReadingColumn({ article, onClose }: ReadingColumnProps) {
         panelRef.current?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
     }, [article.id]);
 
-    const handleResizeStart = (e: React.MouseEvent) => {
-        e.preventDefault();
-        setIsResizing(true);
-        startXRef.current = e.clientX;
-        startWidthRef.current = width;
-
-        document.addEventListener('mousemove', handleResizeMove);
-        document.addEventListener('mouseup', handleResizeEnd);
-    };
-
     const handleResizeMove = useCallback((e: MouseEvent) => {
         const diff = e.clientX - startXRef.current;
         const newWidth = Math.max(MIN_READING_WIDTH, Math.min(MAX_READING_WIDTH, startWidthRef.current + diff));
@@ -48,9 +37,26 @@ export function ReadingColumn({ article, onClose }: ReadingColumnProps) {
 
     const handleResizeEnd = useCallback(() => {
         setIsResizing(false);
-        document.removeEventListener('mousemove', handleResizeMove);
-        document.removeEventListener('mouseup', handleResizeEnd);
-    }, [handleResizeMove]);
+    }, []);
+
+    useEffect(() => {
+        if (!isResizing) return;
+
+        document.addEventListener('mousemove', handleResizeMove);
+        document.addEventListener('mouseup', handleResizeEnd);
+
+        return () => {
+            document.removeEventListener('mousemove', handleResizeMove);
+            document.removeEventListener('mouseup', handleResizeEnd);
+        };
+    }, [handleResizeEnd, handleResizeMove, isResizing]);
+
+    const handleResizeStart = (e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsResizing(true);
+        startXRef.current = e.clientX;
+        startWidthRef.current = width;
+    };
 
     return (
         <div

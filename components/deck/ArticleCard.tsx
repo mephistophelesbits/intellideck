@@ -109,6 +109,9 @@ export function ArticleCard({ article, viewMode = 'comfortable', onClick, isSele
             <img
               src={article.thumbnail}
               alt=""
+              loading="lazy"
+              decoding="async"
+              referrerPolicy="no-referrer"
               className="w-16 h-16 object-cover rounded"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none';

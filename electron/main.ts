@@ -2,15 +2,14 @@ import { app, BrowserWindow, shell, nativeTheme } from 'electron';
 import type { Tray } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { spawnNextServer, waitForServer, buildServerUrl } from './server';
+import { spawnNextServer, waitForServer, buildServerUrl, findAvailablePort } from './server';
 import type { ServerProcess } from './server';
 import { buildAppMenu } from './menu';
 import { createTrayWithActions } from './tray';
 import { Menu } from 'electron';
 
 const IS_DEV = process.env.ELECTRON_IS_DEV === '1';
-const PORT = 3001;
-const SERVER_URL = buildServerUrl(PORT);
+let serverUrl = buildServerUrl();
 
 // ── Single-instance lock ────────────────────────────────────────────────────
 // Prevents multiple copies from launching. If a second instance starts,
@@ -158,7 +157,7 @@ async function createWindow() {
   });
 
   try {
-    await mainWindow.loadURL(SERVER_URL);
+    await mainWindow.loadURL(serverUrl);
   } catch (err) {
     console.error('[electron] loadURL failed:', err);
   }
@@ -167,14 +166,16 @@ async function createWindow() {
 async function startApp() {
   const appRoot = getAppRoot();
   const userDataDir = app.getPath('userData');
+  const port = await findAvailablePort();
+  serverUrl = buildServerUrl(port);
 
   console.log('[electron] Starting Next.js server...');
-  nextServer = spawnNextServer(appRoot, userDataDir);
+  nextServer = spawnNextServer(appRoot, userDataDir, port);
 
   try {
-    await waitForServer(SERVER_URL, 500, 60);
+    await waitForServer(serverUrl, 500, 60);
     serverReady = true;
-    console.log('[electron] Next.js server ready at', SERVER_URL);
+    console.log('[electron] Next.js server ready at', serverUrl);
   } catch (err) {
     console.error('[electron] Server failed to start:', err);
     app.quit();

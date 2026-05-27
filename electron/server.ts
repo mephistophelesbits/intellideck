@@ -1,12 +1,52 @@
 import { spawn, ChildProcess } from 'child_process';
 import { utilityProcess } from 'electron';
 import type { UtilityProcess } from 'electron';
+import net from 'net';
 import path from 'path';
 
 export type ServerProcess = ChildProcess | UtilityProcess;
 
-export function buildServerUrl(port = 3001): string {
-  return `http://localhost:${port}`;
+export const DEFAULT_SERVER_PORT = 3001;
+export const DEFAULT_SERVER_HOSTNAME = '127.0.0.1';
+
+export function buildServerUrl(
+  port = DEFAULT_SERVER_PORT,
+  hostname = DEFAULT_SERVER_HOSTNAME
+): string {
+  return `http://${hostname}:${port}`;
+}
+
+function canListen(port: number, hostname: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.listen(port, hostname, () => {
+      server.close(() => resolve(true));
+    });
+  });
+}
+
+function getRandomAvailablePort(hostname: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', reject);
+    server.listen(0, hostname, () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+export async function findAvailablePort(
+  preferredPort = DEFAULT_SERVER_PORT,
+  hostname = DEFAULT_SERVER_HOSTNAME
+): Promise<number> {
+  if (await canListen(preferredPort, hostname)) {
+    return preferredPort;
+  }
+
+  return getRandomAvailablePort(hostname);
 }
 
 export async function waitForServer(
@@ -26,14 +66,19 @@ export async function waitForServer(
   throw new Error(`Server did not start within ${(intervalMs * maxAttempts) / 1000}s`);
 }
 
-export function spawnNextServer(appRoot: string, userDataDir?: string): ServerProcess {
+export function spawnNextServer(
+  appRoot: string,
+  userDataDir?: string,
+  port = DEFAULT_SERVER_PORT,
+  hostname = DEFAULT_SERVER_HOSTNAME
+): ServerProcess {
   const isDev = process.env.ELECTRON_IS_DEV === '1';
 
   const env: Record<string, string> = {
     ...process.env as Record<string, string>,
     NODE_ENV: isDev ? 'development' : 'production',
-    PORT: '3001',
-    HOSTNAME: 'localhost',
+    PORT: String(port),
+    HOSTNAME: hostname,
     // Pass the Electron userData dir so the Next.js server writes the DB
     // to ~/Library/Application Support/IntelliDeck/ instead of inside the bundle
     ...(userDataDir ? { RSSDECK_DATA_DIR: userDataDir } : {}),
@@ -43,7 +88,7 @@ export function spawnNextServer(appRoot: string, userDataDir?: string): ServerPr
     // In dev, process.execPath is the actual Node.js binary — spawn works fine.
     const serverProcess = spawn(
       process.execPath,
-      [path.join(appRoot, 'node_modules/.bin/next'), 'dev', '-p', '3001'],
+      [path.join(appRoot, 'node_modules/.bin/next'), 'dev', '-p', String(port), '-H', hostname],
       { cwd: appRoot, env, stdio: ['ignore', 'pipe', 'pipe'] }
     );
     serverProcess.stdout?.on('data', (data) => {

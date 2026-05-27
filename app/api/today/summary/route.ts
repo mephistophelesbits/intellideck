@@ -8,6 +8,8 @@ import { getDefaultSettingsSnapshot } from '@/lib/settings-store';
 
 const SUMMARY_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const MAX_SUMMARY_STORIES = 14;
+const SUMMARY_MATCH_STORY_COUNT = 8;
+const SUMMARY_MIN_STORY_OVERLAP = 0.7;
 
 type PrioritySummaryItem = {
   id: string;
@@ -22,15 +24,34 @@ type PrioritySummaryItem = {
   updatedAt: string;
 };
 
-function isFreshSummary() {
+function isFreshSummary(priorityItems: PrioritySummaryItem[]) {
   const latest = getLatestTodaySummary();
   if (!latest) return null;
   if (!latest.executiveSummary.trim()) return null;
 
   const generatedAt = Date.parse(latest.briefingDate || latest.createdAt);
   if (!Number.isFinite(generatedAt)) return null;
+  if (Date.now() - generatedAt >= SUMMARY_INTERVAL_MS) return null;
 
-  return Date.now() - generatedAt < SUMMARY_INTERVAL_MS ? latest : null;
+  const currentStoryIds = priorityItems
+    .slice(0, SUMMARY_MATCH_STORY_COUNT)
+    .map((item) => item.id)
+    .filter(Boolean);
+  const storedStoryIds = latest.topStories
+    .slice(0, SUMMARY_MATCH_STORY_COUNT)
+    .map((item) => item.articleId)
+    .filter(Boolean);
+
+  if (currentStoryIds.length > 0 && storedStoryIds.length > 0) {
+    const stored = new Set(storedStoryIds);
+    const overlap = currentStoryIds.filter((id) => stored.has(id)).length;
+    const requiredOverlap = Math.ceil(
+      Math.min(currentStoryIds.length, storedStoryIds.length) * SUMMARY_MIN_STORY_OVERLAP
+    );
+    if (overlap < requiredOverlap) return null;
+  }
+
+  return latest;
 }
 
 function stripThinkingProcess(text: string) {
@@ -121,17 +142,17 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}));
     const force = Boolean(body.force);
-    const freshSummary = force ? null : isFreshSummary();
-    if (freshSummary) {
-      return NextResponse.json({ ...freshSummary, reused: true });
-    }
-
     const settings = getPersistedSettings(getDefaultSettingsSnapshot());
     const aiSettings = body.aiSettings || settings.aiSettings;
     const locale = body.locale || settings.aiSettings.language || 'en';
     const priorityItems = Array.isArray(body.priorityItems) && body.priorityItems.length > 0
       ? body.priorityItems.slice(0, MAX_SUMMARY_STORIES) as PrioritySummaryItem[]
       : fallbackPriorityItems();
+
+    const freshSummary = force ? null : isFreshSummary(priorityItems);
+    if (freshSummary) {
+      return NextResponse.json({ ...freshSummary, reused: true });
+    }
 
     if (priorityItems.length === 0) {
       return NextResponse.json({ error: 'No priority feed items available for summary generation' }, { status: 400 });

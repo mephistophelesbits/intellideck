@@ -8,11 +8,12 @@
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "eslint",
-    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:3001 && npm run electron:start\"",
+    "electron:dev": "npm run electron:start",
     "electron:compile": "tsc --project tsconfig.electron.json",
     "electron:start": "npm run electron:compile && ELECTRON_IS_DEV=1 npx electron .electron-dist/main.js",
     "electron:prepare": "cp -rp .next/static .next/standalone/.next/ && cp -rp public .next/standalone/ && rm -rf .next/standalone/node_modules/@next/swc-* .next/standalone/node_modules/@img .next/standalone/node_modules/@swc",
     "electron:build": "next build && npm run electron:prepare && npm run electron:compile && npx electron-builder",
+    "typecheck": "tsc --noEmit --project tsconfig.json && tsc --noEmit --project tsconfig.electron.json",
     "test": "vitest run"
   },
   "dependencies": {

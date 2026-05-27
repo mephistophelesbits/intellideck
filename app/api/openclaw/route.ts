@@ -92,6 +92,10 @@ function getTrendingTopics(): any[] {
 }
 
 export async function GET() {
+    if (process.env.INTELLIDECK_ENABLE_OPENCLAW !== '1') {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    }
+
     const openclawPath = path.join(process.env.HOME || '/Users/clawking', '.openclaw');
     const logsPath = path.join(openclawPath, 'logs', 'gateway.log');
     const cronRunsPath = path.join(openclawPath, 'cron', 'runs');

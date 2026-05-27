@@ -66,10 +66,41 @@ function truncateText(text: string | null, length = 180) {
 function extractJsonArray(text: string) {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const candidate = fenced || text;
-  const start = candidate.indexOf('[');
-  const end = candidate.lastIndexOf(']');
-  if (start !== -1 && end !== -1 && end > start) {
-    return JSON.parse(candidate.slice(start, end + 1));
+
+  for (let start = candidate.indexOf('['); start !== -1; start = candidate.indexOf('[', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = start; index < candidate.length; index += 1) {
+      const char = candidate[index];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+      } else if (char === '[') {
+        depth += 1;
+      } else if (char === ']') {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            return JSON.parse(candidate.slice(start, index + 1));
+          } catch {
+            break;
+          }
+        }
+      }
+    }
   }
 
   const objectStart = candidate.indexOf('{');
@@ -197,12 +228,10 @@ async function downloadFullArticlesForPriorityFeed(items: PriorityItem[]) {
 }
 
 function buildTodaySignature(
-  latestBriefing: ReturnType<typeof getLatestTodaySummary>,
   candidateItems: PriorityItem[],
   curationSettings: string
 ) {
   return JSON.stringify({
-    briefingId: latestBriefing?.id ?? null,
     curationSettings,
     candidates: candidateItems.map((item) => [
       item.id,
@@ -470,13 +499,22 @@ export async function GET() {
   const overview = getIntelligenceOverview(2);
   const candidateItems = getTodayPriorityFeed(40, 2);
   const curationSettings = getCurationSettingsSignature();
-  const signature = buildTodaySignature(latestBriefing, candidateItems, curationSettings);
+  const signature = buildTodaySignature(candidateItems, curationSettings);
 
   if (todayCache?.signature === signature) {
-    return NextResponse.json({
+    const payload = {
       ...todayCache.payload,
+      latestBriefing,
+    };
+    todayCache = {
+      ...todayCache,
+      payload,
+    };
+
+    return NextResponse.json({
+      ...payload,
       curation: {
-        ...todayCache.payload.curation,
+        ...payload.curation,
         refreshing: revalidationSignature === signature,
       },
     });

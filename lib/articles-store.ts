@@ -23,12 +23,14 @@ export const useArticlesStore = create<ArticlesState>((set, get) => ({
       const newArticlesByColumn = new Map(state.articlesByColumn);
       newArticlesByColumn.set(columnId, articles);
 
-      // Rebuild articleToColumn map
-      const newArticleToColumn = new Map<string, string>();
-      newArticlesByColumn.forEach((columnArticles, colId) => {
-        columnArticles.forEach((article) => {
-          newArticleToColumn.set(article.id, colId);
-        });
+      const newArticleToColumn = new Map(state.articleToColumn);
+      state.articlesByColumn.get(columnId)?.forEach((article) => {
+        if (newArticleToColumn.get(article.id) === columnId) {
+          newArticleToColumn.delete(article.id);
+        }
+      });
+      articles.forEach((article) => {
+        newArticleToColumn.set(article.id, columnId);
       });
 
       return {

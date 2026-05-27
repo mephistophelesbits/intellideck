@@ -1,36 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/server/db';
 import { runArticleSearch } from '@/lib/server/search-repository';
-import { normalizeFeedItemDate } from '@/lib/server/rss-ingestion';
-import Parser from 'rss-parser';
 import { Article } from '@/lib/types';
 
-const parser = new Parser({
-    customFields: {
-        item: [
-            ['media:thumbnail', 'mediaThumbnail'],
-            ['media:content', 'mediaContent'],
-            ['enclosure', 'enclosure'],
-            ['content:encoded', 'contentEncoded'],
-            ['dc:creator', 'dcCreator'],
-        ],
-    },
-    headers: {
-        'User-Agent': 'RSS-Deck/1.0 (RSS Reader Application)',
-        Accept: 'application/rss+xml, application/xml, text/xml, */*',
-    },
-    timeout: 10000,
-});
+const COLUMN_ARTICLE_LIMIT = 100;
 
 type ColumnRow = {
     id: string;
     type: string;
     feed_list_id: string | null;
     search_rule_id: string | null;
+    sources_json: string;
 };
 
 type FeedListItemRow = {
     url: string;
+};
+
+type ArticleRow = {
+    id: string;
+    canonical_url: string;
+    title: string;
+    published_at: string | null;
+    created_at: string;
+    author: string | null;
+    content_snippet: string | null;
+    image_url: string | null;
+    source_title: string | null;
+    source_url: string | null;
 };
 
 type SearchRuleRow = {
@@ -49,7 +46,7 @@ export async function GET(
         const db = getDb();
 
         const column = db.prepare(`
-      SELECT id, type, feed_list_id, search_rule_id
+      SELECT id, type, feed_list_id, search_rule_id, sources_json
       FROM columns_state
       WHERE id = ?
     `).get(columnId) as ColumnRow | undefined;
@@ -59,7 +56,6 @@ export async function GET(
         }
 
         if (column.type === 'list' && column.feed_list_id) {
-            // Fetch articles from feeds in the list
             const feedUrls = db.prepare(`
         SELECT sf.url
         FROM feed_list_items fli
@@ -68,16 +64,7 @@ export async function GET(
         ORDER BY fli.position ASC
       `).all(column.feed_list_id) as FeedListItemRow[];
 
-            const articles = await fetchArticlesFromFeeds(feedUrls.map(f => f.url));
-
-            // Sort by pubDate descending
-            articles.sort((a, b) => {
-                const dateA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
-                const dateB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
-                return dateB - dateA;
-            });
-
-            return NextResponse.json(articles);
+            return NextResponse.json(getCachedArticlesForFeeds(feedUrls.map(f => f.url)));
         }
 
         if (column.type === 'search' && column.search_rule_id) {
@@ -95,13 +82,12 @@ export async function GET(
             const searchResult = runArticleSearch(searchRule.query);
 
             // Convert SearchResult to Article format
-            const articles: Article[] = searchResult.results.map(r => ({
+            const articles: Article[] = searchResult.results.slice(0, COLUMN_ARTICLE_LIMIT).map(r => ({
                 id: r.id,
                 title: r.title,
                 link: r.url,
                 pubDate: r.publishedAt || new Date().toISOString(),
                 contentSnippet: r.contentSnippet || undefined,
-                content: r.rawContent || undefined,
                 sourceTitle: r.sourceTitle || undefined,
                 sourceUrl: r.sourceUrl || undefined,
             }));
@@ -109,7 +95,10 @@ export async function GET(
             return NextResponse.json(articles);
         }
 
-        return NextResponse.json({ error: 'Column type not supported for article fetching' }, { status: 400 });
+        const sources = JSON.parse(column.sources_json) as Array<{ url?: string }>;
+        return NextResponse.json(getCachedArticlesForFeeds(
+            sources.map((source) => source.url).filter((url): url is string => Boolean(url))
+        ));
     } catch (error) {
         return NextResponse.json(
             { error: error instanceof Error ? error.message : 'Failed to fetch articles' },
@@ -118,115 +107,47 @@ export async function GET(
     }
 }
 
-async function fetchArticlesFromFeeds(urls: string[]): Promise<Article[]> {
-    const allArticles: Article[] = [];
+function getCachedArticlesForFeeds(urls: string[]): Article[] {
+    const sourceUrls = Array.from(new Set(
+        urls.flatMap((url) => {
+            const trimmed = url.trim();
+            if (!trimmed) return [];
+            return trimmed.startsWith('http://') || trimmed.startsWith('https://')
+                ? [trimmed]
+                : [trimmed, `http://${trimmed}`, `https://${trimmed}`];
+        })
+    ));
 
-    for (const url of urls) {
-        try {
-            const fetchUrl = url.startsWith('http') ? url : `http://${url}`;
+    if (sourceUrls.length === 0) return [];
 
-            const attempts: Array<() => Promise<Article[]>> = [
-                async () => {
-                    const rssResponse = await fetch(fetchUrl, {
-                        headers: {
-                            'User-Agent': 'RSS-Deck/1.0 (RSS Reader Application)',
-                            Accept: 'application/rss+xml, application/xml, text/xml, application/atom+xml, */*',
-                            'Accept-Language': 'en-US,en;q=0.9',
-                        },
-                        redirect: 'follow',
-                    });
+    const placeholders = sourceUrls.map(() => '?').join(', ');
+    const rows = getDb().prepare(`
+        SELECT
+            id,
+            canonical_url,
+            title,
+            published_at,
+            created_at,
+            author,
+            content_snippet,
+            image_url,
+            source_title,
+            source_url
+        FROM articles
+        WHERE source_url IN (${placeholders})
+        ORDER BY COALESCE(published_at, created_at) DESC, updated_at DESC
+        LIMIT ?
+    `).all(...sourceUrls, COLUMN_ARTICLE_LIMIT) as ArticleRow[];
 
-                    if (!rssResponse.ok) {
-                        throw new Error(`HTTP error! status: ${rssResponse.status}`);
-                    }
-
-                    const xml = await rssResponse.text();
-                    const feed = await parser.parseString(xml);
-                    return feed.items.map((item) => {
-                        const itemRecord = item as unknown as Record<string, unknown>;
-                        return {
-                            id: item.guid || item.link || `generated-${Date.now()}-${Math.random()}`,
-                            title: item.title || 'Untitled',
-                            link: item.link || '',
-                            pubDate: normalizeFeedItemDate({
-                                link: item.link,
-                                guid: item.guid,
-                                pubDate: item.pubDate,
-                                isoDate: item.isoDate,
-                                feedUrl: fetchUrl,
-                                feedTitle: feed.title,
-                            }),
-                            contentSnippet: item.contentSnippet?.slice(0, 300),
-                            content: (itemRecord.contentEncoded as string) || item.content,
-                            author: (itemRecord.dcCreator as string) || item.creator,
-                            thumbnail: extractThumbnail(itemRecord),
-                            sourceTitle: feed.title,
-                            sourceUrl: feed.link,
-                        } as Article;
-                    });
-                },
-                async () => {
-                    const feed = await parser.parseURL(fetchUrl);
-                    return feed.items.map((item) => {
-                        const itemRecord = item as unknown as Record<string, unknown>;
-                        return {
-                            id: item.guid || item.link || `generated-${Date.now()}-${Math.random()}`,
-                            title: item.title || 'Untitled',
-                            link: item.link || '',
-                            pubDate: normalizeFeedItemDate({
-                                link: item.link,
-                                guid: item.guid,
-                                pubDate: item.pubDate,
-                                isoDate: item.isoDate,
-                                feedUrl: fetchUrl,
-                                feedTitle: feed.title,
-                            }),
-                            contentSnippet: item.contentSnippet?.slice(0, 300),
-                            content: (itemRecord.contentEncoded as string) || item.content,
-                            author: (itemRecord.dcCreator as string) || item.creator,
-                            thumbnail: extractThumbnail(itemRecord),
-                            sourceTitle: feed.title,
-                            sourceUrl: feed.link,
-                        } as Article;
-                    });
-                },
-            ];
-
-            for (const attempt of attempts) {
-                try {
-                    const articles = await attempt();
-                    allArticles.push(...articles);
-                    break;
-                } catch {
-                    continue;
-                }
-            }
-        } catch (error) {
-            // Skip failed feeds silently
-            console.error(`Failed to fetch feed ${url}:`, error);
-        }
-    }
-
-    return allArticles;
-}
-
-function extractThumbnail(item: Record<string, unknown>): string | undefined {
-    if (item.mediaThumbnail && typeof item.mediaThumbnail === 'object') {
-        const thumb = item.mediaThumbnail as { $?: { url?: string } };
-        if (thumb.$?.url) return thumb.$.url;
-    }
-
-    if (item.mediaContent && typeof item.mediaContent === 'object') {
-        const media = item.mediaContent as { $?: { url?: string } };
-        if (media.$?.url) return media.$.url;
-    }
-
-    if (item.enclosure && typeof item.enclosure === 'object') {
-        const enc = item.enclosure as { url?: string; type?: string };
-        if (enc.url && enc.type?.startsWith('image/')) {
-            return enc.url;
-        }
-    }
-
-    return undefined;
+    return rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        link: row.canonical_url,
+        pubDate: row.published_at || row.created_at,
+        contentSnippet: row.content_snippet ?? undefined,
+        author: row.author ?? undefined,
+        thumbnail: row.image_url ?? undefined,
+        sourceTitle: row.source_title ?? undefined,
+        sourceUrl: row.source_url ?? undefined,
+    }));
 }

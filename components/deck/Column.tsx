@@ -150,76 +150,33 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
   }, [setColumns, setSavedFeeds]);
 
   const fetchFeeds = useCallback(async () => {
-    // Handle 'list' and 'search' column types via the articles endpoint
-    if (column.type === 'list' || column.type === 'search') {
-      try {
-        const res = await fetch(`/api/deck/columns/${column.id}/articles`);
-        if (!res.ok) throw new Error('Failed to fetch articles');
-        const data = await res.json();
-
-        // Sort by date, newest first
-        const sortedArticles = (data as Article[]).sort(
-          (a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
-        );
-
-        // Remove duplicates (by URL and title)
-        const uniqueArticles = deduplicateArticles(sortedArticles);
-
-        handleNewArticles(uniqueArticles);
-        setError(null);
-      } catch (err) {
-        setError('Failed to load articles');
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
-      }
-      return;
-    }
-
-    // Legacy column types (single-feed, category, unified)
-    if (column.sources.length === 0) {
+    if (column.type !== 'list' && column.type !== 'search' && column.sources.length === 0) {
       setArticles([]);
       setIsLoading(false);
+      setIsRefreshing(false);
       return;
     }
 
     try {
-      const allArticles: Article[] = [];
+      const res = await fetch(`/api/deck/columns/${column.id}/articles`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to fetch articles');
+      const data = await res.json();
 
-      await Promise.all(
-        column.sources.map(async (source) => {
-          try {
-            const res = await fetch(`/api/rss?url=${encodeURIComponent(source.url)}`);
-            if (!res.ok) throw new Error(`Failed to fetch ${source.title}`);
-            const data = await res.json();
-            if (data.items) {
-              allArticles.push(...data.items);
-            }
-          } catch (err) {
-            console.error(`Error fetching ${source.url}:`, err);
-          }
-        })
-      );
-
-      // Sort by date, newest first
-      allArticles.sort(
+      const sortedArticles = (data as Article[]).sort(
         (a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
       );
-
-      // Remove duplicates (by URL and title)
-      const uniqueArticles = deduplicateArticles(allArticles);
+      const uniqueArticles = deduplicateArticles(sortedArticles);
 
       handleNewArticles(uniqueArticles);
       setError(null);
     } catch (err) {
-      setError('Failed to load feeds');
+      setError('Failed to load articles');
       console.error(err);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [column.type, column.id, column.sources, handleNewArticles]);
+  }, [column.type, column.id, column.sources.length, handleNewArticles]);
 
   // Initial load / manual refresh trigger
   useEffect(() => {

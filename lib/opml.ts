@@ -80,7 +80,7 @@ export function parseOPML(xmlString: string): OPMLParseResult {
 
     const outlines = doc.querySelectorAll('outline');
     outlines.forEach(extractFromOutline);
-  } catch (e) {
+  } catch {
     // Fallback: Regex parsing for semi-malformed XML
     const outlineRegex = /<outline[^>]+>/gi;
     const attrRegex = /(\w+)="([^"]*)"/gi;
@@ -129,6 +129,25 @@ export function isValidOPML(xmlString: string): boolean {
   return false;
 }
 
+function escapeXmlAttribute(value: string) {
+  return value.replace(/[<>&'"]/g, (char) => {
+    switch (char) {
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '&':
+        return '&amp;';
+      case '\'':
+        return '&apos;';
+      case '"':
+        return '&quot;';
+      default:
+        return char;
+    }
+  });
+}
+
 /**
  * Generate OPML XML from feeds
  */
@@ -147,18 +166,21 @@ export function generateOPML(feeds: OPMLFeed[], title: string = 'IntelliDeck Exp
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="2.0">
   <head>
-    <title>${title}</title>
+    <title>${escapeXmlAttribute(title)}</title>
     <dateCreated>${new Date().toISOString()}</dateCreated>
   </head>
   <body>`;
 
   categories.forEach((categoryFeeds, category) => {
+    const escapedCategory = escapeXmlAttribute(category);
     if (category !== 'Uncategorized') {
-      xml += `\n    <outline text="${category}" title="${category}">`;
+      xml += `\n    <outline text="${escapedCategory}" title="${escapedCategory}">`;
     }
 
     categoryFeeds.forEach((feed) => {
-      xml += `\n      <outline text="${feed.title}" title="${feed.title}" type="rss" xmlUrl="${feed.url}" htmlUrl=""/>`;
+      const escapedTitle = escapeXmlAttribute(feed.title);
+      const escapedUrl = escapeXmlAttribute(feed.url);
+      xml += `\n      <outline text="${escapedTitle}" title="${escapedTitle}" type="rss" xmlUrl="${escapedUrl}" htmlUrl=""/>`;
     });
 
     if (category !== 'Uncategorized') {

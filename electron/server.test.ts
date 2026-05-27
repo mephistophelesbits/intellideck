@@ -3,11 +3,15 @@ import { waitForServer, buildServerUrl } from './server';
 
 describe('buildServerUrl', () => {
   it('builds http url with given port', () => {
-    expect(buildServerUrl(3001)).toBe('http://localhost:3001');
+    expect(buildServerUrl(3001)).toBe('http://127.0.0.1:3001');
   });
 
   it('defaults to port 3001', () => {
-    expect(buildServerUrl()).toBe('http://localhost:3001');
+    expect(buildServerUrl()).toBe('http://127.0.0.1:3001');
+  });
+
+  it('allows overriding host', () => {
+    expect(buildServerUrl(3001, 'localhost')).toBe('http://localhost:3001');
   });
 });
 

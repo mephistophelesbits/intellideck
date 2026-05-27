@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 import { DatabaseSync } from 'node:sqlite';
 
 let database: DatabaseSync | null = null;
+const MAX_STORED_ARTICLE_CONTENT_CHARS = 80_000;
 
 function getDatabasePath() {
   // In Electron production, RSSDECK_DATA_DIR is set to app.getPath('userData')
@@ -256,6 +257,9 @@ function initializeDatabase(db: DatabaseSync) {
       ON feed_list_items(list_id, position);
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_canonical_url ON articles(canonical_url);
+    CREATE INDEX IF NOT EXISTS idx_articles_source_url_published ON articles(source_url, published_at DESC, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_articles_display_date ON articles(COALESCE(published_at, created_at) DESC, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_articles_source_url_display_date ON articles(source_url, COALESCE(published_at, created_at) DESC, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_articles_updated_at ON articles(updated_at);
     CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at DESC);
     CREATE INDEX IF NOT EXISTS idx_articles_created_at ON articles(created_at DESC);
@@ -267,6 +271,7 @@ function initializeDatabase(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_search_rules_updated_at ON search_rules(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_article_feedback_article_id ON article_feedback(article_id);
     CREATE INDEX IF NOT EXISTS idx_article_impressions_surface_shown ON article_impressions(surface, shown_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_article_impressions_article_surface_shown ON article_impressions(article_id, surface, shown_at DESC);
     CREATE INDEX IF NOT EXISTS idx_preference_weights_type_weight ON preference_weights(feature_type, weight DESC);
   `);
 
@@ -312,12 +317,68 @@ function normalizeLegacyArticleDates(db: DatabaseSync) {
   }
 }
 
+function compactDuplicateImpressions(db: DatabaseSync) {
+  const row = db.prepare('SELECT COUNT(*) AS count FROM article_impressions').get() as { count: number };
+  if (row.count < 10_000) return;
+
+  const result = db.prepare(`
+    DELETE FROM article_impressions
+    WHERE rowid NOT IN (
+      SELECT MAX(rowid)
+      FROM article_impressions
+      GROUP BY surface, article_id, substr(shown_at, 1, 10)
+    )
+  `).run() as { changes: number };
+
+  if (result.changes > 0) {
+    console.log(`[Maintenance] Removed ${result.changes} duplicate article impressions`);
+  }
+}
+
+function compactOversizedArticleContent(db: DatabaseSync) {
+  const result = db.prepare(`
+    UPDATE articles
+    SET
+      raw_content = CASE
+        WHEN raw_content IS NOT NULL AND length(raw_content) > ? THEN substr(raw_content, 1, ?)
+        ELSE raw_content
+      END,
+      scraped_html = CASE
+        WHEN scraped_html IS NOT NULL AND length(scraped_html) > ? THEN substr(scraped_html, 1, ?)
+        ELSE scraped_html
+      END,
+      scraped_text = CASE
+        WHEN scraped_text IS NOT NULL AND length(scraped_text) > ? THEN substr(scraped_text, 1, ?)
+        ELSE scraped_text
+      END
+    WHERE length(COALESCE(raw_content, '')) > ?
+      OR length(COALESCE(scraped_html, '')) > ?
+      OR length(COALESCE(scraped_text, '')) > ?
+  `).run(
+    MAX_STORED_ARTICLE_CONTENT_CHARS,
+    MAX_STORED_ARTICLE_CONTENT_CHARS,
+    MAX_STORED_ARTICLE_CONTENT_CHARS,
+    MAX_STORED_ARTICLE_CONTENT_CHARS,
+    MAX_STORED_ARTICLE_CONTENT_CHARS,
+    MAX_STORED_ARTICLE_CONTENT_CHARS,
+    MAX_STORED_ARTICLE_CONTENT_CHARS,
+    MAX_STORED_ARTICLE_CONTENT_CHARS,
+    MAX_STORED_ARTICLE_CONTENT_CHARS
+  ) as { changes: number };
+
+  if (result.changes > 0) {
+    console.log(`[Maintenance] Trimmed oversized content for ${result.changes} articles`);
+  }
+}
+
 /**
  * Run one-time migrations for features that need to convert existing data.
  * This is called once on first database connection.
  */
 function runMigrations(db: DatabaseSync) {
   normalizeLegacyArticleDates(db);
+  compactDuplicateImpressions(db);
+  compactOversizedArticleContent(db);
 
   // Check if we need to migrate columns to feed_lists
   const existingLists = db.prepare('SELECT COUNT(*) as count FROM feed_lists').get() as { count: number };
@@ -434,11 +495,11 @@ export function getDb() {
 
 /**
  * Delete articles (and their cascade-linked analysis/locations/entities/themes)
- * older than `daysToKeep` days. Also prunes old trend_snapshots.
+ * older than `daysToKeep` days. Also prunes old trend_snapshots and impressions.
  *
- * Returns the number of articles deleted.
+ * Returns the number of records deleted.
  */
-export function runRetentionCleanup(daysToKeep: number): { articlesDeleted: number; snapshotsDeleted: number } {
+export function runRetentionCleanup(daysToKeep: number): { articlesDeleted: number; snapshotsDeleted: number; impressionsDeleted: number } {
   const db = getDb();
   const cutoff = new Date(Date.now() - daysToKeep * 24 * 60 * 60 * 1000).toISOString();
 
@@ -453,11 +514,17 @@ export function runRetentionCleanup(daysToKeep: number): { articlesDeleted: numb
     `DELETE FROM trend_snapshots WHERE created_at < ?`
   ).run(snapshotCutoff) as { changes: number };
 
+  const impressionCutoff = new Date(Date.now() - Math.min(daysToKeep, 30) * 24 * 60 * 60 * 1000).toISOString();
+  const impressionResult = db.prepare(
+    `DELETE FROM article_impressions WHERE shown_at < ?`
+  ).run(impressionCutoff) as { changes: number };
+
   // Vacuum to reclaim disk space
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 
   return {
     articlesDeleted: articleResult.changes,
     snapshotsDeleted: snapshotResult.changes,
+    impressionsDeleted: impressionResult.changes,
   };
 }

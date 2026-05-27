@@ -17,11 +17,6 @@
     {
       "from": ".next/standalone",
       "to": "app/.next/standalone"
-    },
-    {
-      "from": "data",
-      "to": "app/data",
-      "filter": ["**/*"]
     }
   ],
   "mac": {

@@ -180,6 +180,53 @@ export function ArticlePreviewPanel({ article, onClose }: ArticlePreviewPanelPro
     setChatInput('');
   }, [article?.id, article?.link, getCachedScrapedContent, getCachedSummary, getCachedChatMessages]);
 
+  useEffect(() => {
+    if (!article || article.content || scrapedContent) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function loadStoredContent() {
+      try {
+        const response = await fetch(`/api/articles/content?articleId=${encodeURIComponent(article!.id)}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+
+        const data = await response.json() as {
+          content?: string | null;
+          textContent?: string | null;
+          contentSnippet?: string | null;
+        };
+        if (cancelled || !data.content) return;
+
+        const storedArticle: ScrapedArticle = {
+          title: article!.title,
+          content: data.content,
+          textContent: data.textContent || data.contentSnippet || '',
+          excerpt: data.contentSnippet || '',
+          byline: null,
+          siteName: article!.sourceTitle || null,
+          length: data.textContent?.length || data.content.length,
+        };
+        setScrapedContent(storedArticle);
+        setCachedScrapedContent(article!.link, storedArticle);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('Stored article content fetch failed:', error);
+        }
+      }
+    }
+
+    void loadStoredContent();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [article, scrapedContent, setCachedScrapedContent]);
+
   // Auto-fetch full article content after 4 seconds if feed didn't provide it
   useEffect(() => {
     if (!article) return;

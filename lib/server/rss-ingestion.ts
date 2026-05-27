@@ -3,8 +3,10 @@ import 'server-only';
 import Parser from 'rss-parser';
 import { FeedResponse } from '@/lib/types';
 import { generateId } from '@/lib/utils';
-import { persistArticles } from '@/lib/server/articles-repository';
+import { persistArticles, rebuildArticleTrendSnapshots } from '@/lib/server/articles-repository';
 import { listSavedFeeds, recordFeedFetchResult } from '@/lib/server/deck-repository';
+
+const REFRESH_FEED_CONCURRENCY = 4;
 
 const parser = new Parser({
   customFields: {
@@ -208,11 +210,17 @@ export async function fetchFeedData(url: string) {
   };
 }
 
-export async function ingestFeed(url: string) {
+type IngestFeedOptions = {
+  rebuildTrends?: boolean;
+};
+
+export async function ingestFeed(url: string, options: IngestFeedOptions = {}) {
   const fetchedAt = new Date().toISOString();
   try {
     const { fetchUrl, response } = await fetchFeedData(url);
-    persistArticles(fetchUrl, response.title, response.items);
+    persistArticles(fetchUrl, response.title, response.items, {
+      rebuildTrends: options.rebuildTrends,
+    });
     recordFeedFetchResult(url, {
       title: response.title,
       siteUrl: response.link ?? null,
@@ -250,10 +258,14 @@ export async function ingestFeed(url: string) {
 export async function refreshSavedFeeds(limit?: number) {
   const feeds = listSavedFeeds();
   const selectedFeeds = typeof limit === 'number' && limit > 0 ? feeds.slice(0, limit) : feeds;
-  const results = [];
+  const results = await mapWithConcurrency(
+    selectedFeeds,
+    REFRESH_FEED_CONCURRENCY,
+    (feed) => ingestFeed(feed.url, { rebuildTrends: false })
+  );
 
-  for (const feed of selectedFeeds) {
-    results.push(await ingestFeed(feed.url));
+  if (results.some((result) => !result.error && result.articleCount > 0)) {
+    rebuildArticleTrendSnapshots();
   }
 
   return {
@@ -264,4 +276,23 @@ export async function refreshSavedFeeds(limit?: number) {
     results,
     refreshedAt: new Date().toISOString(),
   };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+) {
+  const results: R[] = [];
+  let nextIndex = 0;
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]);
+    }
+  }));
+
+  return results;
 }

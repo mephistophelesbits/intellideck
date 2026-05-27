@@ -25,6 +25,8 @@ type FeedbackRow = {
 
 const MAX_FEATURE_WEIGHT = 12;
 const MAX_PREFERENCE_BOOST = 35;
+const PRIORITY_IMPRESSION_DEDUPE_WINDOW_MS = 6 * 60 * 60 * 1000;
+const PRIORITY_IMPRESSION_SURFACE = 'today_priority';
 
 function normalizeFeatureKey(value: string | null | undefined) {
   return value?.replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 96) || '';
@@ -275,18 +277,34 @@ export function recordPriorityFeedImpressions(items: Array<{
 
   const db = getDb();
   const now = new Date().toISOString();
+  const cutoff = new Date(Date.now() - PRIORITY_IMPRESSION_DEDUPE_WINDOW_MS).toISOString();
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const articleIds = Array.from(itemById.keys());
+  const placeholders = articleIds.map(() => '?').join(',');
+  const recentRows = db.prepare(`
+    SELECT DISTINCT article_id
+    FROM article_impressions
+    WHERE surface = ?
+      AND shown_at >= ?
+      AND article_id IN (${placeholders})
+  `).all(PRIORITY_IMPRESSION_SURFACE, cutoff, ...articleIds) as Array<{ article_id: string }>;
+  const recentlyRecorded = new Set(recentRows.map((row) => row.article_id));
+  const impressionsToRecord = items.filter((item) => !recentlyRecorded.has(item.id));
+  if (impressionsToRecord.length === 0) return;
+
   const statement = db.prepare(`
     INSERT INTO article_impressions (id, article_id, surface, position, score, variant, shown_at)
-    VALUES (?, ?, 'today_priority', ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   try {
     db.exec('BEGIN');
-    items.forEach((item, index) => {
+    impressionsToRecord.forEach((item) => {
       statement.run(
         nanoid(),
         item.id,
-        index,
+        PRIORITY_IMPRESSION_SURFACE,
+        items.findIndex((candidate) => candidate.id === item.id),
         item.priorityScore,
         item.recommendationVariant ?? 'baseline',
         now

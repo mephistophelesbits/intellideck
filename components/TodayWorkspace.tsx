@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import {
+  Bookmark,
   Flame,
   Hash,
-  Newspaper,
-  RefreshCw,
+  Layers2,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
@@ -16,6 +15,7 @@ import {
 import { AppChrome } from '@/components/AppChrome';
 import { ArticlePreviewPanel } from '@/components/ui/ArticlePreviewPanel';
 import { RelativeTime } from '@/components/ui/RelativeTime';
+import { useBookmarksStore } from '@/lib/bookmarks-store';
 import { useTranslation } from '@/lib/i18n';
 import { useSettingsStore } from '@/lib/settings-store';
 import { Article } from '@/lib/types';
@@ -55,6 +55,9 @@ type PriorityItem = {
   priorityScore: number;
   basePriorityScore?: number;
   preferenceBoost?: number;
+  similarPostCount?: number;
+  similarSourceCount?: number;
+  similarStoryBoost?: number;
   recommendationVariant?: 'baseline' | 'personalized' | 'exploration';
   feedbackValue?: -1 | 0 | 1;
   urgency: 'urgent' | 'important' | 'watch';
@@ -135,10 +138,9 @@ function isSameArticleSnapshot(a: Article | null, b: Article) {
 export function TodayWorkspace() {
   const { t, locale } = useTranslation();
   const aiSettings = useSettingsStore((state) => state.aiSettings);
-  const defaultRefreshInterval = useSettingsStore((state) => state.defaultRefreshInterval);
+  const { isBookmarked, toggleBookmark } = useBookmarksStore();
   const [payload, setPayload] = useState<TodayPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -409,11 +411,19 @@ export function TodayWorkspace() {
     }
   }, [loadToday]);
 
+  const handleBookmark = useCallback((
+    item: PriorityItem,
+    event: ReactMouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleBookmark(toArticle(item));
+  }, [toggleBookmark]);
+
   const handleGenerateSummary = useCallback(async (silent = false, force = true) => {
     if (summaryInFlightRef.current) return;
     summaryInFlightRef.current = true;
     lastSummaryAttemptRef.current = Date.now();
-    setIsGenerating(true);
     if (!silent) setMessage(null);
     try {
       const response = await fetch('/api/today/summary', {
@@ -436,7 +446,6 @@ export function TodayWorkspace() {
       if (!silent) setMessage(error instanceof Error ? error.message : 'Failed to generate summary.');
       if (silent) console.warn('Automatic Today summary failed:', error);
     } finally {
-      setIsGenerating(false);
       summaryInFlightRef.current = false;
     }
   }, [aiSettings, loadToday, locale, payload?.priorityItems, t]);
@@ -457,38 +466,7 @@ export function TodayWorkspace() {
   return (
     <AppChrome onRefreshAll={handleRefreshAll} showAddFeedAction={false}>
       <div className="h-full overflow-y-auto custom-scrollbar">
-        <div className="mx-auto w-full max-w-[1800px] px-4 py-3 md:px-6 md:py-4">
-          <header className="mb-3 flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-foreground-secondary">
-                <Sparkles className="h-4 w-4 text-accent" />
-                <span>{t('today.agentDesk')}</span>
-              </div>
-              <h1 className="text-3xl font-semibold tracking-normal">{t('today.title')}</h1>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="rounded-lg border border-border bg-background-secondary px-3 py-2 text-xs text-foreground-secondary">
-                {t('today.autoRefresh', { minutes: Math.max(1, defaultRefreshInterval || 10) })}
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleGenerateSummary(false, true)}
-                disabled={isGenerating}
-                className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-[color:var(--accent-foreground)] transition-colors hover:bg-accent-hover disabled:opacity-50"
-              >
-                {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {isGenerating ? t('today.generatingSummary') : t('today.generateSummary')}
-              </button>
-              <Link
-                href="/raw-feed"
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-background-secondary px-3 py-2 text-sm font-medium text-foreground-secondary transition-colors hover:border-accent hover:text-foreground"
-              >
-                <Newspaper className="h-4 w-4" />
-                {t('today.rawFeed')}
-              </Link>
-            </div>
-          </header>
-
+        <div className="w-full px-4 pb-3 md:px-6 md:pb-4">
           {message && (
             <div className="mb-4 rounded-lg border border-border bg-background-secondary px-4 py-3 text-sm text-foreground-secondary">
               {message}
@@ -506,7 +484,7 @@ export function TodayWorkspace() {
                 gridTemplateColumns: `${columnWidths.briefing}px 12px ${columnWidths.feed}px 12px minmax(720px, 1fr)`,
               }}
             >
-              <aside className="space-y-5 xl:sticky xl:top-20 xl:self-start">
+              <aside className="space-y-5 xl:sticky xl:top-0 xl:self-start">
                 <section className="rounded-xl border border-border bg-background-secondary p-4 md:p-5">
                   <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
                     <div className="min-w-0">
@@ -615,79 +593,111 @@ export function TodayWorkspace() {
                   </div>
 
                   <div className="space-y-3">
-                    {filteredPriorityItems.length ? filteredPriorityItems.map((item) => (
-                      <article
-                        key={item.id}
-                        role="button"
-                        tabIndex={0}
-                        ref={(node) => {
-                          if (node) {
-                            itemRefs.current.set(item.id, node);
-                          } else {
-                            itemRefs.current.delete(item.id);
-                          }
-                        }}
-                        data-testid="today-priority-item"
-                        onClick={() => setSelectedArticle(toArticle(item))}
-                        onKeyDown={(event) => {
-                          if (event.key !== 'Enter' && event.key !== ' ') return;
-                          event.preventDefault();
-                          setSelectedArticle(toArticle(item));
-                        }}
-                        className={cn(
-                          'block w-full cursor-pointer rounded-lg border bg-background p-3 text-left transition-colors hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40',
-                          selectedArticle?.id === item.id ? 'border-accent bg-accent/10' : 'border-border'
-                        )}
-                      >
-                        <div className="min-w-0">
-                          <div className="flex items-start gap-3">
-                            <h3 className="min-w-0 flex-1 text-lg font-semibold leading-snug tracking-normal">{item.title}</h3>
-                            <div className="flex shrink-0 items-center gap-1" aria-label="Story preference controls">
-                              <button
-                                type="button"
-                                title="Like this story"
-                                aria-label="Like this story"
-                                aria-pressed={(item.feedbackValue ?? 0) === 1}
-                                disabled={feedbackPendingIds.has(item.id)}
-                                onClick={(event) => void handleFeedback(item, 1, event)}
-                                className={cn(
-                                  'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50',
-                                  (item.feedbackValue ?? 0) === 1
-                                    ? 'border-accent bg-accent text-[color:var(--accent-foreground)]'
-                                    : 'border-border bg-background-secondary text-foreground-secondary hover:border-accent hover:text-foreground'
-                                )}
-                              >
-                                <ThumbsUp className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                title="Dislike this story"
-                                aria-label="Dislike this story"
-                                aria-pressed={(item.feedbackValue ?? 0) === -1}
-                                disabled={feedbackPendingIds.has(item.id)}
-                                onClick={(event) => void handleFeedback(item, -1, event)}
-                                className={cn(
-                                  'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50',
-                                  (item.feedbackValue ?? 0) === -1
-                                    ? 'border-red-500/70 bg-red-500/15 text-red-300'
-                                    : 'border-border bg-background-secondary text-foreground-secondary hover:border-accent hover:text-foreground'
-                                )}
-                              >
-                                <ThumbsDown className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-foreground-secondary">
-                            <span>{item.sourceTitle || t('today.unknownSource')}</span>
-                            <span aria-hidden="true">•</span>
-                            <RelativeTime date={item.publishedAt || item.updatedAt} />
-                          </div>
-                          {item.summary && (
-                            <p className="mt-2 line-clamp-2 text-sm text-foreground-secondary">{item.summary}</p>
+                    {filteredPriorityItems.length ? filteredPriorityItems.map((item) => {
+                      const article = toArticle(item);
+                      const bookmarked = isBookmarked(item.id);
+
+                      return (
+                        <article
+                          key={item.id}
+                          role="button"
+                          tabIndex={0}
+                          ref={(node) => {
+                            if (node) {
+                              itemRefs.current.set(item.id, node);
+                            } else {
+                              itemRefs.current.delete(item.id);
+                            }
+                          }}
+                          data-testid="today-priority-item"
+                          onClick={() => setSelectedArticle(article)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' && event.key !== ' ') return;
+                            event.preventDefault();
+                            setSelectedArticle(article);
+                          }}
+                          className={cn(
+                            'block w-full cursor-pointer rounded-lg border bg-background p-3 text-left transition-colors hover:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40',
+                            selectedArticle?.id === item.id ? 'border-accent bg-accent/10' : 'border-border'
                           )}
-                        </div>
-                      </article>
-                    )) : (
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-start gap-3">
+                              <h3 className="min-w-0 flex-1 text-lg font-semibold leading-snug tracking-normal">{item.title}</h3>
+                              <div className="flex shrink-0 items-center gap-1" aria-label="Story controls">
+                                <button
+                                  type="button"
+                                  title={bookmarked ? t('article.removeBookmark') : t('article.addBookmark')}
+                                  aria-label={bookmarked ? t('article.removeBookmark') : t('article.addBookmark')}
+                                  aria-pressed={bookmarked}
+                                  onClick={(event) => handleBookmark(item, event)}
+                                  className={cn(
+                                    'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors',
+                                    bookmarked
+                                      ? 'border-warning/70 bg-warning/10 text-warning'
+                                      : 'border-border bg-background-secondary text-foreground-secondary hover:border-warning/70 hover:text-warning'
+                                  )}
+                                >
+                                  <Bookmark className={cn('h-4 w-4', bookmarked && 'fill-current')} />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Like this story"
+                                  aria-label="Like this story"
+                                  aria-pressed={(item.feedbackValue ?? 0) === 1}
+                                  disabled={feedbackPendingIds.has(item.id)}
+                                  onClick={(event) => void handleFeedback(item, 1, event)}
+                                  className={cn(
+                                    'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50',
+                                    (item.feedbackValue ?? 0) === 1
+                                      ? 'border-accent bg-accent text-[color:var(--accent-foreground)]'
+                                      : 'border-border bg-background-secondary text-foreground-secondary hover:border-accent hover:text-foreground'
+                                  )}
+                                >
+                                  <ThumbsUp className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Dislike this story"
+                                  aria-label="Dislike this story"
+                                  aria-pressed={(item.feedbackValue ?? 0) === -1}
+                                  disabled={feedbackPendingIds.has(item.id)}
+                                  onClick={(event) => void handleFeedback(item, -1, event)}
+                                  className={cn(
+                                    'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors disabled:opacity-50',
+                                    (item.feedbackValue ?? 0) === -1
+                                      ? 'border-red-500/70 bg-red-500/15 text-red-300'
+                                      : 'border-border bg-background-secondary text-foreground-secondary hover:border-accent hover:text-foreground'
+                                  )}
+                                >
+                                  <ThumbsDown className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-foreground-secondary">
+                              <span>{item.sourceTitle || t('today.unknownSource')}</span>
+                              <span aria-hidden="true">•</span>
+                              <RelativeTime date={item.publishedAt || item.updatedAt} />
+                              {(item.similarPostCount ?? 0) > 0 && (
+                                <>
+                                  <span aria-hidden="true">•</span>
+                                  <span
+                                    className="inline-flex items-center gap-1 text-foreground"
+                                    title={`${item.similarPostCount} similar ${item.similarPostCount === 1 ? 'post' : 'posts'} found in recent feeds`}
+                                  >
+                                    <Layers2 className="h-3.5 w-3.5 text-accent" />
+                                    {item.similarPostCount} similar
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                            {item.summary && (
+                              <p className="mt-2 line-clamp-2 text-sm text-foreground-secondary">{item.summary}</p>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    }) : (
                       <div className="rounded-lg border border-dashed border-border bg-background p-5 text-sm text-foreground-secondary">
                         {t('today.noPriorityItems')}
                       </div>

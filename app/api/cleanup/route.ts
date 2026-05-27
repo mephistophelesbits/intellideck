@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic';
  * POST /api/cleanup
  * Body: { daysToKeep: number }
  *
- * Deletes articles older than `daysToKeep` days and prunes old trend snapshots.
- * Returns { articlesDeleted, snapshotsDeleted }.
+ * Deletes articles older than `daysToKeep` days and prunes old trend snapshots/impressions.
+ * Returns { articlesDeleted, snapshotsDeleted, impressionsDeleted }.
  */
 export async function POST(request: Request) {
   try {

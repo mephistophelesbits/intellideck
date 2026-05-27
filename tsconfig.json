@@ -39,6 +39,9 @@
   "exclude": [
     "node_modules",
     "electron",
-    ".electron-dist"
+    ".electron-dist",
+    ".claude",
+    "dist-electron",
+    "data"
   ]
 }
