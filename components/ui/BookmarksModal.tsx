@@ -2,7 +2,7 @@
 
 import { X, Bookmark, Trash2, ExternalLink } from 'lucide-react';
 import { useBookmarksStore } from '@/lib/bookmarks-store';
-import { RelativeTime } from '@/components/ui/RelativeTime';
+import { TimeAgo } from '@/components/ui/TimeAgo';
 import { Article } from '@/lib/types';
 import { decodeHtml } from '@/lib/utils';
 import { useTranslation } from '@/lib/i18n';
@@ -105,7 +105,7 @@ export function BookmarksModal({ isOpen, onClose, onArticleClick }: BookmarksMod
                               <span className="text-foreground-secondary">·</span>
                             </>
                           )}
-                          <RelativeTime date={article.pubDate} className="text-warning font-medium" />
+                          <TimeAgo date={article.pubDate} className="text-warning font-medium" />
                         </div>
                         <div className="flex items-center gap-1">
                           <a

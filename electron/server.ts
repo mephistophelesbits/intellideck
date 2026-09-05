@@ -88,7 +88,7 @@ export function spawnNextServer(
     // In dev, process.execPath is the actual Node.js binary — spawn works fine.
     const serverProcess = spawn(
       process.execPath,
-      [path.join(appRoot, 'node_modules/.bin/next'), 'dev', '-p', String(port), '-H', hostname],
+      [path.join(appRoot, 'node_modules/.bin/next'), 'dev', '--webpack', '-p', String(port), '-H', hostname],
       { cwd: appRoot, env, stdio: ['ignore', 'pipe', 'pipe'] }
     );
     serverProcess.stdout?.on('data', (data) => {

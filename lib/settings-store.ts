@@ -30,7 +30,7 @@ export const themes: ThemeColors[] = [
     accentHover: '#0e45b3',
     border: '#e2e8f0',
     isDark: false,
-    fontFamily: 'var(--font-dm-sans), sans-serif',
+    fontFamily: 'var(--font-inter), sans-serif',
   },
   {
     id: 'stitch-dark',
@@ -45,7 +45,7 @@ export const themes: ThemeColors[] = [
     accentForeground: '#000000',
     border: '#1e1e3a',
     isDark: true,
-    fontFamily: 'var(--font-dm-sans), sans-serif',
+    fontFamily: 'var(--font-inter), sans-serif',
   },
 ];
 
@@ -80,7 +80,7 @@ interface SettingsState {
   aiSettings: {
     enabled: boolean;
     sentimentEnabled: boolean;
-    provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'minimax' | 'kimi';
+    provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'minimax' | 'kimi' | 'nvidia';
     ollamaUrl: string;
     apiKeys: Record<string, string>;
     model: string;
@@ -98,8 +98,18 @@ interface SettingsState {
     lastGenerated: string | null;
   };
   setBriefingSettings: (settings: Partial<SettingsState['briefingSettings']>) => void;
+  voiceProfiles: Record<string, { rules: string[]; fewShot: string[] }>;
+  setVoiceProfiles: (profiles: Record<string, { rules: string[]; fewShot: string[] }>) => void;
   keywordAlerts: KeywordAlert[];
   setKeywordAlerts: (alerts: KeywordAlert[]) => void;
+
+  webSearchSettings: {
+    enabled: boolean;
+    searxngUrl: string;   // e.g. http://localhost:8080
+    braveApiKey: string;
+  };
+  setWebSearchSettings: (settings: Partial<SettingsState['webSearchSettings']>) => void;
+
   hydrateSettings: (settings: SettingsSnapshot) => void;
 }
 
@@ -114,7 +124,9 @@ export type SettingsSnapshot = Pick<
   | 'locale'
   | 'aiSettings'
   | 'briefingSettings'
+  | 'voiceProfiles'
   | 'keywordAlerts'
+  | 'webSearchSettings'
 >;
 
 export function getDefaultSettingsSnapshot(): SettingsSnapshot {
@@ -132,19 +144,36 @@ export function getDefaultSettingsSnapshot(): SettingsSnapshot {
       provider: 'ollama',
       ollamaUrl: 'http://localhost:11434',
       apiKeys: {},
-      model: 'llama3.2',
+      model: 'gemma3:12b',
       language: 'Original Language',
       customSummaryPrompt: '',
     },
     briefingSettings: {
       enabled: true,
-      times: ['08:00'],
+      times: ['09:00'],
       telegramEnabled: false,
       telegramToken: '',
       telegramChatId: '',
       lastGenerated: null,
     },
+    voiceProfiles: {
+      xhs: {
+        rules: [
+          'first person, warm with dry humor',
+          'no em dashes',
+          'under 1000 characters',
+          'no generic AI-sounding phrases; sharp editorial sensibility',
+          'lead with a concrete hook, not a thesis statement',
+        ],
+        fewShot: [],
+      },
+    },
     keywordAlerts: [],
+    webSearchSettings: {
+      enabled: false,
+      searxngUrl: 'http://localhost:8080',
+      braveApiKey: '',
+    },
   };
 }
 
@@ -159,7 +188,9 @@ function toSettingsSnapshot(state: SettingsState): SettingsSnapshot {
     locale: state.locale,
     aiSettings: state.aiSettings,
     briefingSettings: state.briefingSettings,
+    voiceProfiles: state.voiceProfiles,
     keywordAlerts: state.keywordAlerts,
+    webSearchSettings: state.webSearchSettings,
   };
 }
 
@@ -222,11 +253,22 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
       persistSettings(toSettingsSnapshot({ ...state, briefingSettings }));
       return { briefingSettings };
     }),
+  setVoiceProfiles: (voiceProfiles) =>
+    set((state) => {
+      persistSettings(toSettingsSnapshot({ ...state, voiceProfiles }));
+      return { voiceProfiles };
+    }),
   setKeywordAlerts: (alerts) =>
     set((state) => {
       const keywordAlerts = alerts;
       persistSettings(toSettingsSnapshot({ ...state, keywordAlerts }));
       return { keywordAlerts };
+    }),
+  setWebSearchSettings: (newSettings) =>
+    set((state) => {
+      const webSearchSettings = { ...state.webSearchSettings, ...newSettings };
+      persistSettings(toSettingsSnapshot({ ...state, webSearchSettings }));
+      return { webSearchSettings };
     }),
   setLocale: (locale) =>
     set((state) => {

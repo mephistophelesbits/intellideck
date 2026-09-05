@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { X, ExternalLink, Loader2, AlertCircle, Globe } from 'lucide-react';
 import DOMPurify from 'dompurify';
-import { cn } from '@/lib/utils';
 
 interface ScrapedContent {
   title: string;
@@ -273,7 +272,8 @@ export function UrlPreviewProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    closePreview();
+    const timer = window.setTimeout(closePreview, 0);
+    return () => window.clearTimeout(timer);
   }, [pathname, closePreview]);
 
   return (

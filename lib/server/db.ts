@@ -4,8 +4,10 @@ import fs from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
 import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync as SqliteDatabaseSync } from 'node:sqlite';
+import * as sqliteVec from 'sqlite-vec';
 
-let database: DatabaseSync | null = null;
+let database: SqliteDatabaseSync | null = null;
 const MAX_STORED_ARTICLE_CONTENT_CHARS = 80_000;
 
 function getDatabasePath() {
@@ -19,7 +21,19 @@ function getDatabasePath() {
   return path.join(dataDir, 'intellideck.db');
 }
 
-function initializeDatabase(db: DatabaseSync) {
+function initializeDatabase(db: SqliteDatabaseSync) {
+  // sqlite-vec: local-first vector store for embeddings (IntelliDeck 2.0 graph foundation).
+  // node:sqlite requires the connection to be opened with { allowExtension: true } (see getDb)
+  // and extension loading to be explicitly enabled around the load call.
+  try {
+    db.enableLoadExtension(true);
+    db.loadExtension(sqliteVec.getLoadablePath());
+    db.enableLoadExtension(false);
+  } catch (error) {
+    console.error('[db] Failed to load sqlite-vec extension:', error);
+    throw error;
+  }
+
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
@@ -62,8 +76,11 @@ function initializeDatabase(db: DatabaseSync) {
     CREATE TABLE IF NOT EXISTS search_rules (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      label_color TEXT NOT NULL DEFAULT '#f97316',
       query TEXT NOT NULL,
       keywords_json TEXT NOT NULL,
+      settings_json TEXT NOT NULL DEFAULT '{"matchMode":"or","excludeKeywords":[]}',
+      order_index INTEGER NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_run_at TEXT
@@ -88,19 +105,6 @@ function initializeDatabase(db: DatabaseSync) {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS briefings (
-      id TEXT PRIMARY KEY,
-      briefing_date TEXT NOT NULL,
-      title TEXT NOT NULL,
-      executive_summary TEXT NOT NULL,
-      key_themes_json TEXT NOT NULL,
-      top_stories_json TEXT NOT NULL,
-      scope_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      model_provider TEXT,
-      model_name TEXT
-    );
-
     CREATE TABLE IF NOT EXISTS trend_snapshots (
       id TEXT PRIMARY KEY,
       snapshot_date TEXT NOT NULL,
@@ -119,15 +123,6 @@ function initializeDatabase(db: DatabaseSync) {
       relevance_score REAL NOT NULL,
       created_at TEXT NOT NULL,
       FOREIGN KEY(search_rule_id) REFERENCES search_rules(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS briefing_chat_messages (
-      id TEXT PRIMARY KEY,
-      briefing_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY(briefing_id) REFERENCES briefings(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS article_analysis (
@@ -250,6 +245,25 @@ function initializeDatabase(db: DatabaseSync) {
       PRIMARY KEY(feature_type, feature_key)
     );
 
+    CREATE VIRTUAL TABLE IF NOT EXISTS article_vectors USING vec0(
+      article_id TEXT PRIMARY KEY,
+      embedding FLOAT[768]
+    );
+
+    CREATE TABLE IF NOT EXISTS content_drafts (
+      id          TEXT PRIMARY KEY,
+      source_type TEXT,
+      source_id   TEXT,
+      platform    TEXT NOT NULL,
+      angle       TEXT,
+      draft       TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'draft',
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_content_drafts_source ON content_drafts(source_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_content_drafts_created ON content_drafts(created_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_feed_list_items_list_feed
       ON feed_list_items(list_id, feed_id);
 
@@ -263,9 +277,7 @@ function initializeDatabase(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_articles_updated_at ON articles(updated_at);
     CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles(published_at DESC);
     CREATE INDEX IF NOT EXISTS idx_articles_created_at ON articles(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_briefings_briefing_date ON briefings(briefing_date);
     CREATE INDEX IF NOT EXISTS idx_article_analysis_category ON article_analysis(primary_category);
-    CREATE INDEX IF NOT EXISTS idx_briefing_chat_messages_briefing_id ON briefing_chat_messages(briefing_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_article_entities_entity_id ON article_entities(entity_id);
     CREATE INDEX IF NOT EXISTS idx_article_themes_theme_id ON article_themes(theme_id);
     CREATE INDEX IF NOT EXISTS idx_search_rules_updated_at ON search_rules(updated_at DESC);
@@ -280,9 +292,54 @@ function initializeDatabase(db: DatabaseSync) {
   ensureColumn(db, 'saved_feeds', 'last_error', 'TEXT');
   ensureColumn(db, 'columns_state', 'feed_list_id', 'TEXT');
   ensureColumn(db, 'columns_state', 'search_rule_id', 'TEXT');
+  ensureColumn(db, 'search_rules', 'label_color', 'TEXT NOT NULL DEFAULT \'#f97316\'');
+  ensureColumn(db, 'search_rules', 'settings_json', 'TEXT NOT NULL DEFAULT \'{"matchMode":"or","excludeKeywords":[]}\'');
+  ensureColumn(db, 'search_rules', 'order_index', 'INTEGER');
+
+  // IntelliDeck 2.0 Phase 1: enrich entities with rolling summary + salience + lifecycle.
+  ensureColumn(db, 'entities', 'aliases', 'TEXT');
+  ensureColumn(db, 'entities', 'summary', 'TEXT');
+  ensureColumn(db, 'entities', 'salience', 'REAL NOT NULL DEFAULT 0');
+  ensureColumn(db, 'entities', 'mention_count', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'entities', 'first_seen', 'TEXT');
+  ensureColumn(db, 'entities', 'last_seen', 'TEXT');
+  ensureColumn(db, 'entities', 'summary_dirty_count', 'INTEGER NOT NULL DEFAULT 0');
+  ensureColumn(db, 'entities', 'summary_updated_at', 'TEXT');
+
+  // Per-mention signal used by salience and semantic ranking.
+  ensureColumn(db, 'article_entities', 'salience', 'REAL');
+  ensureColumn(db, 'article_entities', 'sentiment', 'REAL');
+  ensureColumn(db, 'article_entities', 'snippet', 'TEXT');
+  dropRetiredIntelligenceSchema(db);
 }
 
-function ensureColumn(db: DatabaseSync, tableName: string, columnName: string, columnDefinition: string) {
+function dropRetiredIntelligenceSchema(db: SqliteDatabaseSync) {
+  db.exec(`
+    DROP TABLE IF EXISTS briefing_chat_messages;
+    DROP TABLE IF EXISTS briefings;
+    DROP TABLE IF EXISTS actor_stance_history;
+    DROP TABLE IF EXISTS interval_briefs;
+    DROP TABLE IF EXISTS world_synthesis;
+    DROP TABLE IF EXISTS story_web_context;
+    DROP TABLE IF EXISTS story_reads;
+    DROP TABLE IF EXISTS story_events;
+    DROP TABLE IF EXISTS story_articles;
+    DROP TABLE IF EXISTS stories;
+    DROP TABLE IF EXISTS topic_articles;
+    DROP TABLE IF EXISTS topic_digest;
+    DROP TABLE IF EXISTS topics;
+  `);
+}
+
+function ensureColumn(db: SqliteDatabaseSync, tableName: string, columnName: string, columnDefinition: string) {
+  const table = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .get(tableName) as { name: string } | undefined;
+
+  if (!table) {
+    return;
+  }
+
   const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
   if (rows.some((row) => row.name === columnName)) {
     return;
@@ -290,7 +347,7 @@ function ensureColumn(db: DatabaseSync, tableName: string, columnName: string, c
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
 }
 
-function normalizeLegacyArticleDates(db: DatabaseSync) {
+function normalizeLegacyArticleDates(db: SqliteDatabaseSync) {
   const rows = db.prepare(`
     SELECT id, published_at
     FROM articles
@@ -317,7 +374,7 @@ function normalizeLegacyArticleDates(db: DatabaseSync) {
   }
 }
 
-function compactDuplicateImpressions(db: DatabaseSync) {
+function compactDuplicateImpressions(db: SqliteDatabaseSync) {
   const row = db.prepare('SELECT COUNT(*) AS count FROM article_impressions').get() as { count: number };
   if (row.count < 10_000) return;
 
@@ -335,7 +392,7 @@ function compactDuplicateImpressions(db: DatabaseSync) {
   }
 }
 
-function compactOversizedArticleContent(db: DatabaseSync) {
+function compactOversizedArticleContent(db: SqliteDatabaseSync) {
   const result = db.prepare(`
     UPDATE articles
     SET
@@ -375,7 +432,7 @@ function compactOversizedArticleContent(db: DatabaseSync) {
  * Run one-time migrations for features that need to convert existing data.
  * This is called once on first database connection.
  */
-function runMigrations(db: DatabaseSync) {
+function runMigrations(db: SqliteDatabaseSync) {
   normalizeLegacyArticleDates(db);
   compactDuplicateImpressions(db);
   compactOversizedArticleContent(db);
@@ -485,9 +542,16 @@ function runMigrations(db: DatabaseSync) {
 
 export function getDb() {
   if (!database) {
-    database = new DatabaseSync(getDatabasePath());
-    initializeDatabase(database);
-    runMigrations(database);
+    const db = new DatabaseSync(getDatabasePath(), { allowExtension: true });
+    try {
+      initializeDatabase(db);
+      runMigrations(db);
+    } catch (err) {
+      // Don't cache a partially-initialized DB — next call will retry.
+      try { db.close(); } catch { /* ignore */ }
+      throw err;
+    }
+    database = db;
   }
 
   return database;

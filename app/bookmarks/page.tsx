@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Bookmark, Trash2, ExternalLink, Search } from 'lucide-react';
 import { useBookmarksStore } from '@/lib/bookmarks-store';
-import { RelativeTime } from '@/components/ui/RelativeTime';
+import { TimeAgo } from '@/components/ui/TimeAgo';
 import { ArticlePreviewPanel } from '@/components/ui/ArticlePreviewPanel';
 import { AppChrome } from '@/components/AppChrome';
 import { Article } from '@/lib/types';
@@ -128,7 +128,7 @@ export default function BookmarksPage() {
                                 <span className="text-foreground-secondary">·</span>
                               </>
                             )}
-                            <RelativeTime date={article.pubDate} className="text-warning font-medium" />
+                            <TimeAgo date={article.pubDate} className="text-warning font-medium" />
                           </div>
                           <div className="flex items-center gap-1">
                             <a

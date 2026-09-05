@@ -10,7 +10,7 @@ export async function GET() {
     version: 1,
     appSettings: db.prepare(`SELECT * FROM app_settings`).all(),
     bookmarks: db.prepare(`SELECT * FROM bookmarks ORDER BY updated_at DESC, created_at DESC`).all(),
-    searchRules: db.prepare(`SELECT * FROM search_rules ORDER BY updated_at DESC, created_at DESC`).all(),
+    searchRules: db.prepare(`SELECT * FROM search_rules ORDER BY order_index ASC, created_at ASC`).all(),
     savedFeeds: db.prepare(`SELECT * FROM saved_feeds ORDER BY updated_at DESC, created_at DESC`).all(),
     columnsState: db.prepare(`SELECT * FROM columns_state ORDER BY position ASC, created_at ASC`).all(),
     articles: db.prepare(`SELECT * FROM articles ORDER BY updated_at DESC`).all(),
@@ -21,8 +21,6 @@ export async function GET() {
     articleEntities: db.prepare(`SELECT * FROM article_entities`).all(),
     themes: db.prepare(`SELECT * FROM themes`).all(),
     articleThemes: db.prepare(`SELECT * FROM article_themes`).all(),
-    briefings: db.prepare(`SELECT * FROM briefings ORDER BY briefing_date DESC`).all(),
-    briefingChatMessages: db.prepare(`SELECT * FROM briefing_chat_messages ORDER BY created_at ASC`).all(),
     trendSnapshots: db.prepare(`SELECT * FROM trend_snapshots ORDER BY snapshot_date DESC`).all(),
   };
 

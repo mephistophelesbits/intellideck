@@ -1,6 +1,5 @@
-import { NextResponse } from 'next/server';
-import { getBriefings } from '@/lib/server/briefings-repository';
+import { retiredFeatureResponse } from '@/lib/server/retired-feature';
 
 export async function GET() {
-  return NextResponse.json(getBriefings());
+  return retiredFeatureResponse('Briefings');
 }

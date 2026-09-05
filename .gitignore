@@ -22,10 +22,12 @@
 
 # misc
 .DS_Store
+._*
 *.pem
 
 # app data & logs
 /data/
+/intellideck.db*
 rss.log
 
 # AI assistant configs

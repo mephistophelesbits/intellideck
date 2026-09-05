@@ -3,6 +3,26 @@ import path from "path";
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  allowedDevOrigins: ['127.0.0.1'],
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          // Don't leak the local app URL when users open external article links
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+        ],
+      },
+    ];
+  },
+  // sqlite-vec resolves its native binary via import.meta.resolve, which the
+  // bundler (Turbopack/webpack) stubs out. Keep it external so the resolution
+  // runs in real Node and the vec0 extension actually loads in server routes.
+  // @node-rs/jieba is a native (N-API) module loaded via createRequire in
+  // cjk-ner.ts — also keep it external so the prebuilt binary loads at runtime.
+  serverExternalPackages: ['sqlite-vec', '@node-rs/jieba'],
   // Tell Next.js the tracing root is THIS project directory, not the parent
   // workspace root. Without this, Next.js detects the parent rssdeck/
   // package-lock.json and nests standalone output at

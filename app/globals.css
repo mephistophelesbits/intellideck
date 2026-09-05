@@ -57,8 +57,10 @@
   --color-success: var(--success);
   --color-error: var(--error);
   --color-warning: var(--warning);
-  --font-sans: var(--font-dm-sans);
-  --font-serif: var(--font-playfair);
+  /* Meridian font direction: Inter for UI, Source Serif 4 for reading, JetBrains Mono for metadata */
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-source-serif);
+  --font-mono: var(--font-jetbrains-mono);
   --font-orbitron: var(--font-orbitron);
 }
 

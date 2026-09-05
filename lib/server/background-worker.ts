@@ -8,7 +8,6 @@ import { refreshSavedFeeds } from '@/lib/server/rss-ingestion';
 const MIN_REFRESH_INTERVAL_MS = 60_000;
 const WORKER_CHECK_INTERVAL_MS = 60_000;
 const STARTUP_DELAY_MS = 10_000;
-const DEFAULT_SERVER_PORT = '3001';
 
 type BackgroundWorkerState = {
   started: boolean;
@@ -55,36 +54,6 @@ function getLatestFeedFetchAtMs() {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getTodayWarmupUrl() {
-  const port = process.env.PORT || DEFAULT_SERVER_PORT;
-  return `http://127.0.0.1:${port}/api/today`;
-}
-
-async function warmTodayCache() {
-  try {
-    const response = await fetch(getTodayWarmupUrl(), { cache: 'no-store' });
-    if (!response.ok) return null;
-    return await response.json() as { priorityItems?: unknown[] };
-  } catch (error) {
-    console.warn('[IntelliDeck worker] Today cache warmup failed:', error);
-    return null;
-  }
-}
-
-async function refreshTodaySummary(todayPayload: { priorityItems?: unknown[] } | null) {
-  try {
-    await fetch(`${getTodayWarmupUrl()}/summary`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        priorityItems: todayPayload?.priorityItems ?? [],
-      }),
-    });
-  } catch (error) {
-    console.warn('[IntelliDeck worker] Today summary refresh failed:', error);
-  }
-}
-
 async function runFeedRefreshIfDue(state: BackgroundWorkerState) {
   if (state.running) return;
 
@@ -104,8 +73,6 @@ async function runFeedRefreshIfDue(state: BackgroundWorkerState) {
     console.log(
       `[IntelliDeck worker] Refreshed ${result.successfulFeeds}/${result.totalFeeds} feeds, processed ${result.totalArticles} items.`
     );
-    const todayPayload = await warmTodayCache();
-    await refreshTodaySummary(todayPayload);
   } catch (error) {
     console.warn('[IntelliDeck worker] Feed refresh failed:', error);
   } finally {
@@ -113,13 +80,28 @@ async function runFeedRefreshIfDue(state: BackgroundWorkerState) {
   }
 }
 
+export function shouldStartBackgroundWorker(env: Partial<NodeJS.ProcessEnv> = process.env) {
+  if (env.INTELLIDECK_DISABLE_BACKGROUND_WORKER === '1') return false;
+  if (env.NEXT_PHASE === 'phase-production-build') return false;
+  return true;
+}
+
 export function startBackgroundWorker() {
-  if (process.env.INTELLIDECK_DISABLE_BACKGROUND_WORKER === '1') return;
+  if (!shouldStartBackgroundWorker()) return;
 
   const state = getWorkerState();
   if (state.started) return;
 
   state.started = true;
+
+  // One-shot, idempotent backfill: merge existing EN/CN entity variants onto their
+  // canonical rows. Cheap (scoped to the curated alias set); best-effort.
+  void import('./entity-aliases')
+    .then((m) => {
+      const merged = m.mergeAliasedEntities();
+      if (merged > 0) console.log(`[IntelliDeck worker] Merged ${merged} aliased entity rows.`);
+    })
+    .catch((err) => console.error('[IntelliDeck worker] entity alias backfill failed:', err));
 
   const tick = () => {
     void runFeedRefreshIfDue(state);

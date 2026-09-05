@@ -3,6 +3,8 @@ declare module 'node:sqlite' {
     constructor(path: string, options?: Record<string, unknown>);
     exec(sql: string): void;
     prepare(sql: string): StatementSync;
+    enableLoadExtension(allow: boolean): void;
+    loadExtension(path: string): void;
     close(): void;
   }
 

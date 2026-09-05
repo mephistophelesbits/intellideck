@@ -96,13 +96,6 @@ function normalizeCountryName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function buildHeatColor(score: number, min: number, max: number) {
-  if (max <= min) return 'rgba(251,146,60,0.14)';
-  const ratio = Math.max(0, Math.min(1, (score - min) / (max - min)));
-  const alpha = 0.12 + ratio * 0.62;
-  return `rgba(249, 115, 22, ${alpha.toFixed(3)})`;
-}
-
 function withAlpha(hex: string, alpha: number) {
   const normalized = hex.replace('#', '');
   const fullHex = normalized.length === 3

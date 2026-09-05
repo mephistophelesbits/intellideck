@@ -1,7 +1,5 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-import { TodayWorkspace } from '@/components/TodayWorkspace';
-
-export default function Home() {
-  return <TodayWorkspace />;
+export default function RootPage() {
+  redirect('/home');
 }

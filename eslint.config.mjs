@@ -27,6 +27,7 @@ const eslintConfig = defineConfig([
     "data/**",
     "dist-electron/**",
     "coverage/**",
+    "**/._*",
   ]),
 ]);
 

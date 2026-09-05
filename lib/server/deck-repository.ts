@@ -29,9 +29,12 @@ type FeedRow = {
 export function getDeckState(): DeckStateSnapshot {
   seedDefaultsIfNeeded();
 
+  const columns = getColumns();
+  const savedFeeds = getSavedFeeds();
+
   return {
-    columns: getColumns(),
-    savedFeeds: getSavedFeeds(),
+    columns,
+    savedFeeds,
   };
 }
 

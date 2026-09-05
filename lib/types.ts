@@ -74,8 +74,13 @@ export interface FeedListWithItems extends FeedList {
 export interface SearchRule {
   id: string;
   name: string;
+  ruleColor: string;
   query: string;
   keywords: string[];
+  settings: {
+    matchMode: 'or' | 'and';
+    excludeKeywords: string[];
+  };
   lastRunAt: string | null;
 }
 

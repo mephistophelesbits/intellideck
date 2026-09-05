@@ -1,4 +1,31 @@
-export type AIProvider = 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'minimax' | 'kimi';
+import { computeNumCtx } from '@/lib/ai/ollama-utils';
+import { createCircuitBreaker } from '@/lib/ai/circuit-breaker';
+
+// Backstop so a hung provider connection can never stall a route forever. Kept
+// well above normal latency (a 12B summary on the M4 is ~40s) but low enough that
+// a wedged runner fails fast instead of freezing the serialized enrichment queue
+// for minutes per call (it used to be 300s).
+const AI_REQUEST_TIMEOUT_MS = 120_000;
+
+// Self-hosted Ollama can go unhealthy in ways that aren't a clean error: a hung
+// runner, or a model that returns empty output via /api/generate (e.g. `gemma4`).
+// The breaker trips after several consecutive failures and short-circuits further
+// calls for a cooldown, so enrichment drains via deterministic fallbacks and
+// recovers automatically once Ollama is healthy again.
+export const ollamaBreaker = createCircuitBreaker({ failureThreshold: 4, cooldownMs: 30_000 });
+
+function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+    return fetch(url, { ...init, signal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS) });
+}
+
+function requireText(text: unknown, provider: string): string {
+    if (typeof text !== 'string') {
+        throw new Error(`${provider} returned an unexpected response shape`);
+    }
+    return text;
+}
+
+export type AIProvider = 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'minimax' | 'kimi' | 'nvidia';
 
 export interface AIResponse {
     text: string;
@@ -20,6 +47,9 @@ export interface AIRequestOptions {
     baseUrl?: string;
     temperature?: number;
     maxTokens?: number;
+    /** Override the computed Ollama context window. Use for output-heavy calls
+     *  (e.g. entity extraction) where the response is much larger than the prompt. */
+    numCtx?: number;
 }
 
 export async function generateText(
@@ -40,6 +70,8 @@ export async function generateText(
             return await generateMinimax(prompt, options);
         case 'kimi':
             return await generateKimi(prompt, options);
+        case 'nvidia':
+            return await generateNvidia(prompt, options);
         default:
             throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -47,33 +79,141 @@ export async function generateText(
 
 async function generateOllama(prompt: string, options: AIRequestOptions): Promise<AIResponse> {
     const baseUrl = options.baseUrl || 'http://localhost:11434';
-    const response = await fetch(`${baseUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: options.model,
-            prompt: prompt,
-            stream: false,
-            options: {
-                temperature: options.temperature ?? 0.7,
-                num_predict: options.maxTokens,
-            }
-        }),
-    });
+    const numCtx = options.numCtx ?? computeNumCtx(prompt);
 
-    if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Ollama error: ${error}`);
+    // Short-circuit while the breaker is open so a known-bad Ollama doesn't make
+    // every queued call wait for the timeout.
+    if (!ollamaBreaker.shouldAllow()) {
+        throw new Error('Ollama unavailable (circuit breaker open after repeated failures)');
     }
 
-    const data = await response.json();
-    return { text: data.response };
+    try {
+        const response = await fetchWithTimeout(`${baseUrl}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: options.model,
+                prompt: prompt,
+                stream: false,
+                options: {
+                    temperature: options.temperature ?? 0.7,
+                    num_predict: options.maxTokens,
+                    num_ctx: numCtx,
+                }
+            }),
+        });
+
+        if (!response.ok) {
+            const error = await response.text();
+            throw new Error(`Ollama error: ${error}`);
+        }
+
+        const data = await response.json();
+        const text = requireText(data.response, 'Ollama');
+        // Treat empty/whitespace output as a failure: some models (notably the
+        // `gemma4` family) return "" via /api/generate on real prompts. Throwing
+        // here lets callers fall back instead of persisting an empty result.
+        if (!text.trim()) {
+            throw new Error('Ollama returned an empty response (model may be incompatible with /api/generate)');
+        }
+
+        ollamaBreaker.recordSuccess();
+        return { text };
+    } catch (error) {
+        ollamaBreaker.recordFailure();
+        throw error;
+    }
+}
+
+export async function embedText(
+    provider: AIProvider,
+    text: string,
+    options: AIRequestOptions
+): Promise<number[]> {
+    switch (provider) {
+        case 'ollama':
+            return await embedOllama(text, options);
+        default:
+            throw new Error(`Embeddings not supported for provider: ${provider}`);
+    }
+}
+
+/**
+ * Embed many texts in ONE Ollama `/api/embed` round-trip (the endpoint accepts an `input`
+ * array). Collapsing N serial requests into one is the big lever for draining an embedding
+ * backlog — per-request + network overhead dominates, not the tiny embed model itself.
+ *
+ * Best-effort and robust: on a batch failure (e.g. one oversized input rejects the whole
+ * call) it falls back to per-item `embedText` (which has shrink-and-retry), returning null
+ * for any item that still fails so one bad article cannot sink the batch.
+ */
+export async function embedTextBatch(
+    provider: AIProvider,
+    texts: string[],
+    options: AIRequestOptions,
+): Promise<(number[] | null)[]> {
+    if (provider !== 'ollama') throw new Error(`Embeddings not supported for provider: ${provider}`);
+    if (texts.length === 0) return [];
+
+    const baseUrl = options.baseUrl || 'http://localhost:11434';
+    try {
+        const response = await fetchWithTimeout(`${baseUrl}/api/embed`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: options.model, input: texts }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const data = await response.json();
+        const embeddings = data.embeddings;
+        if (!Array.isArray(embeddings) || embeddings.length !== texts.length) {
+            throw new Error('Ollama batch embedding error: unexpected response shape');
+        }
+        return embeddings as number[][];
+    } catch {
+        // Per-item fallback: isolate failures so a single bad input doesn't fail the batch.
+        return await Promise.all(
+            texts.map((t) => embedText('ollama', t, options).catch(() => null)),
+        );
+    }
+}
+
+async function embedOllama(text: string, options: AIRequestOptions): Promise<number[]> {
+    const baseUrl = options.baseUrl || 'http://localhost:11434';
+
+    // Embedding models have a fixed, model-bound context (e.g. nomic-embed-text caps at
+    // 2048 tokens; num_ctx cannot raise it). Token density varies with content and language,
+    // so a fixed char cap is unreliable. Shrink-and-retry on the specific overflow error.
+    let input = text;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        const response = await fetchWithTimeout(`${baseUrl}/api/embeddings`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: options.model, prompt: input }),
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const embedding = data.embedding;
+            if (!Array.isArray(embedding) || embedding.some((n: unknown) => typeof n !== 'number')) {
+                throw new Error('Ollama embedding error: unexpected response shape');
+            }
+            return embedding as number[];
+        }
+
+        const error = await response.text();
+        if (error.includes('exceeds the context length') && input.length > 400) {
+            input = input.slice(0, Math.floor(input.length * 0.6));
+            continue;
+        }
+        throw new Error(`Ollama embedding error: ${error}`);
+    }
+    throw new Error('Ollama embedding error: input could not be reduced to fit the model context');
 }
 
 async function generateOpenAI(prompt: string, options: AIRequestOptions): Promise<AIResponse> {
     if (!options.apiKey) throw new Error('OpenAI API key is required');
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -94,11 +234,11 @@ async function generateOpenAI(prompt: string, options: AIRequestOptions): Promis
 
     const data = await response.json();
     return {
-        text: data.choices[0].message.content,
+        text: requireText(data.choices?.[0]?.message?.content, 'OpenAI'),
         usage: {
-            promptTokens: data.usage.prompt_tokens,
-            completionTokens: data.usage.completion_tokens,
-            totalTokens: data.usage.total_tokens,
+            promptTokens: data.usage?.prompt_tokens ?? 0,
+            completionTokens: data.usage?.completion_tokens ?? 0,
+            totalTokens: data.usage?.total_tokens ?? 0,
         }
     };
 }
@@ -106,7 +246,7 @@ async function generateOpenAI(prompt: string, options: AIRequestOptions): Promis
 async function generateAnthropic(prompt: string, options: AIRequestOptions): Promise<AIResponse> {
     if (!options.apiKey) throw new Error('Anthropic API key is required');
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -128,11 +268,11 @@ async function generateAnthropic(prompt: string, options: AIRequestOptions): Pro
 
     const data = await response.json();
     return {
-        text: data.content[0].text,
+        text: requireText(data.content?.[0]?.text, 'Anthropic'),
         usage: {
-            promptTokens: data.usage.input_tokens,
-            completionTokens: data.usage.output_tokens,
-            totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+            promptTokens: data.usage?.input_tokens ?? 0,
+            completionTokens: data.usage?.output_tokens ?? 0,
+            totalTokens: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
         }
     };
 }
@@ -141,9 +281,12 @@ async function generateGemini(prompt: string, options: AIRequestOptions): Promis
     if (!options.apiKey) throw new Error('Gemini API key is required');
 
     const model = options.model || 'gemini-3-pro-preview';
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${options.apiKey}`, {
+    const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': options.apiKey,
+        },
         body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
@@ -160,14 +303,14 @@ async function generateGemini(prompt: string, options: AIRequestOptions): Promis
 
     const data = await response.json();
     return {
-        text: data.candidates[0].content.parts[0].text,
+        text: requireText(data.candidates?.[0]?.content?.parts?.[0]?.text, 'Gemini'),
     };
 }
 
 async function generateMinimax(prompt: string, options: AIRequestOptions): Promise<AIResponse> {
     if (!options.apiKey) throw new Error('Minimax API key is required');
 
-    const response = await fetch('https://api.minimax.io/v1/text/chatcompletion_v2', {
+    const response = await fetchWithTimeout('https://api.minimax.io/v1/text/chatcompletion_v2', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -188,7 +331,7 @@ async function generateMinimax(prompt: string, options: AIRequestOptions): Promi
 
     const data = await response.json();
     return {
-        text: data.choices[0].message.content,
+        text: requireText(data.choices?.[0]?.message?.content, 'AI provider'),
         usage: {
             promptTokens: data.usage?.prompt_tokens ?? 0,
             completionTokens: data.usage?.completion_tokens ?? 0,
@@ -200,7 +343,7 @@ async function generateMinimax(prompt: string, options: AIRequestOptions): Promi
 async function generateKimi(prompt: string, options: AIRequestOptions): Promise<AIResponse> {
     if (!options.apiKey) throw new Error('Kimi API key is required');
 
-    const response = await fetch('https://api.moonshot.ai/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.moonshot.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -221,7 +364,7 @@ async function generateKimi(prompt: string, options: AIRequestOptions): Promise<
 
     const data = await response.json();
     return {
-        text: data.choices[0].message.content,
+        text: requireText(data.choices?.[0]?.message?.content, 'AI provider'),
         usage: {
             promptTokens: data.usage?.prompt_tokens ?? 0,
             completionTokens: data.usage?.completion_tokens ?? 0,
@@ -250,6 +393,8 @@ export async function generateChat(
             return await generateChatMinimax(messages, options);
         case 'kimi':
             return await generateChatKimi(messages, options);
+        case 'nvidia':
+            return await generateChatNvidia(messages, options);
         default:
             throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -258,7 +403,7 @@ export async function generateChat(
 async function generateChatOpenAI(messages: AIChatMessage[], options: AIRequestOptions): Promise<AIResponse> {
     if (!options.apiKey) throw new Error('OpenAI API key is required');
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -279,18 +424,20 @@ async function generateChatOpenAI(messages: AIChatMessage[], options: AIRequestO
 
     const data = await response.json();
     return {
-        text: data.choices[0].message.content,
+        text: requireText(data.choices?.[0]?.message?.content, 'OpenAI'),
         usage: {
-            promptTokens: data.usage.prompt_tokens,
-            completionTokens: data.usage.completion_tokens,
-            totalTokens: data.usage.total_tokens,
+            promptTokens: data.usage?.prompt_tokens ?? 0,
+            completionTokens: data.usage?.completion_tokens ?? 0,
+            totalTokens: data.usage?.total_tokens ?? 0,
         }
     };
 }
 
 async function generateChatOllama(messages: AIChatMessage[], options: AIRequestOptions): Promise<AIResponse> {
     const baseUrl = options.baseUrl || 'http://localhost:11434';
-    const response = await fetch(`${baseUrl}/api/chat`, {
+    const promptEstimate = messages.map((m) => m.content).join('\n');
+    const numCtx = computeNumCtx(promptEstimate);
+    const response = await fetchWithTimeout(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -299,6 +446,7 @@ async function generateChatOllama(messages: AIChatMessage[], options: AIRequestO
             stream: false,
             options: {
                 temperature: options.temperature ?? 0.7,
+                num_ctx: numCtx,
             }
         }),
     });
@@ -309,7 +457,7 @@ async function generateChatOllama(messages: AIChatMessage[], options: AIRequestO
     }
 
     const data = await response.json();
-    return { text: data.message.content };
+    return { text: requireText(data.message?.content, 'Ollama') };
 }
 
 async function generateChatAnthropic(messages: AIChatMessage[], options: AIRequestOptions): Promise<AIResponse> {
@@ -318,7 +466,7 @@ async function generateChatAnthropic(messages: AIChatMessage[], options: AIReque
     const systemMessage = messages.find(m => m.role === 'system')?.content;
     const chatMessages = messages.filter(m => m.role !== 'system');
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -341,11 +489,11 @@ async function generateChatAnthropic(messages: AIChatMessage[], options: AIReque
 
     const data = await response.json();
     return {
-        text: data.content[0].text,
+        text: requireText(data.content?.[0]?.text, 'Anthropic'),
         usage: {
-            promptTokens: data.usage.input_tokens,
-            completionTokens: data.usage.output_tokens,
-            totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+            promptTokens: data.usage?.input_tokens ?? 0,
+            completionTokens: data.usage?.output_tokens ?? 0,
+            totalTokens: (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0),
         }
     };
 }
@@ -363,9 +511,12 @@ async function generateChatGemini(messages: AIChatMessage[], options: AIRequestO
 
     const systemInstruction = messages.find(m => m.role === 'system')?.content;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${options.apiKey}`, {
+    const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': options.apiKey,
+        },
         body: JSON.stringify({
             contents,
             system_instruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined,
@@ -383,14 +534,14 @@ async function generateChatGemini(messages: AIChatMessage[], options: AIRequestO
 
     const data = await response.json();
     return {
-        text: data.candidates[0].content.parts[0].text,
+        text: requireText(data.candidates?.[0]?.content?.parts?.[0]?.text, 'Gemini'),
     };
 }
 
 async function generateChatMinimax(messages: AIChatMessage[], options: AIRequestOptions): Promise<AIResponse> {
     if (!options.apiKey) throw new Error('Minimax API key is required');
 
-    const response = await fetch('https://api.minimax.io/v1/text/chatcompletion_v2', {
+    const response = await fetchWithTimeout('https://api.minimax.io/v1/text/chatcompletion_v2', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -411,7 +562,45 @@ async function generateChatMinimax(messages: AIChatMessage[], options: AIRequest
 
     const data = await response.json();
     return {
-        text: data.choices[0].message.content,
+        text: requireText(data.choices?.[0]?.message?.content, 'AI provider'),
+        usage: {
+            promptTokens: data.usage?.prompt_tokens ?? 0,
+            completionTokens: data.usage?.completion_tokens ?? 0,
+            totalTokens: data.usage?.total_tokens ?? 0,
+        }
+    };
+}
+
+async function generateNvidia(prompt: string, options: AIRequestOptions): Promise<AIResponse> {
+    return generateChatNvidia([{ role: 'user', content: prompt }], options);
+}
+
+async function generateChatNvidia(messages: AIChatMessage[], options: AIRequestOptions): Promise<AIResponse> {
+    if (!options.apiKey) throw new Error('NVIDIA API key is required');
+
+    const response = await fetchWithTimeout('https://integrate.api.nvidia.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${options.apiKey}`,
+        },
+        body: JSON.stringify({
+            model: options.model || 'google/gemma-4-31b-it',
+            messages,
+            temperature: options.temperature ?? 0.7,
+            max_tokens: options.maxTokens || 16384,
+            top_p: 0.95,
+        }),
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`NVIDIA error: ${error.error?.message || response.statusText}`);
+    }
+
+    const data = await response.json();
+    return {
+        text: requireText(data.choices?.[0]?.message?.content, 'AI provider'),
         usage: {
             promptTokens: data.usage?.prompt_tokens ?? 0,
             completionTokens: data.usage?.completion_tokens ?? 0,
@@ -423,7 +612,7 @@ async function generateChatMinimax(messages: AIChatMessage[], options: AIRequest
 async function generateChatKimi(messages: AIChatMessage[], options: AIRequestOptions): Promise<AIResponse> {
     if (!options.apiKey) throw new Error('Kimi API key is required');
 
-    const response = await fetch('https://api.moonshot.ai/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.moonshot.ai/v1/chat/completions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -444,7 +633,7 @@ async function generateChatKimi(messages: AIChatMessage[], options: AIRequestOpt
 
     const data = await response.json();
     return {
-        text: data.choices[0].message.content,
+        text: requireText(data.choices?.[0]?.message?.content, 'AI provider'),
         usage: {
             promptTokens: data.usage?.prompt_tokens ?? 0,
             completionTokens: data.usage?.completion_tokens ?? 0,

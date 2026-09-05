@@ -17,39 +17,7 @@ function escapeXml(unsafe: string) {
     });
 }
 
-async function fetchRSS(url: string): Promise<any[]> {
-    try {
-        const res = await fetch(url, { cache: 'no-store' });
-        const text = await res.text();
-        // Simple XML parsing for RSS items
-        const items: any[] = [];
-        const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
-        let match;
-        while ((match = itemRegex.exec(text)) !== null) {
-            const itemXml = match[1];
-            const titleMatch = itemXml.match(/<title[^>]*>([^<]+)<\/title>/i);
-            const descMatch = itemXml.match(/<description[^>]*>([^<]+)<\/description>/i);
-            const linkMatch = itemXml.match(/<link[^>]*>([^<]+)<\/link>/i);
-            const pubDateMatch = itemXml.match(/<pubDate[^>]*>([^<]+)<\/pubDate>/i);
-            if (titleMatch) {
-                items.push({
-                    title: titleMatch[1].trim(),
-                    description: descMatch ? descMatch[1].trim().substring(0, 500) : '',
-                    link: linkMatch ? linkMatch[1].trim() : '',
-                    pubDate: pubDateMatch ? pubDateMatch[1].trim() : new Date().toISOString(),
-                    category: 'TechNews'
-                });
-            }
-        }
-        return items.slice(0, 3); // Limit to 3 items per feed
-    } catch (e) {
-        console.error(`Error fetching RSS ${url}:`, e);
-        return [];
-    }
-}
-
 function getProjectIdeas(): any[] {
-    const projectsPath = path.join(process.env.HOME || '/Users/clawking', 'SynologyDrive', 'Projects');
     const ideas: any[] = [];
 
     const projects = [
@@ -100,7 +68,7 @@ export async function GET() {
     const logsPath = path.join(openclawPath, 'logs', 'gateway.log');
     const cronRunsPath = path.join(openclawPath, 'cron', 'runs');
 
-    let items: any[] = [];
+    const items: any[] = [];
 
     // 1. Project Ideas (curated by JARVIS)
     items.push(...getProjectIdeas());
@@ -207,13 +175,12 @@ ${items.map(item => `
 </channel>
 </rss>`;
 
+    // No CORS headers: this feed exposes local system logs and is consumed
+    // server-side by the reader, never cross-origin from a browser page.
     return new NextResponse(rss, {
         headers: {
             'Content-Type': 'application/rss+xml',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
         },
     });
 }

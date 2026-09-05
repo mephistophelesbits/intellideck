@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Settings, Eye, Clock, Pencil, Check, X, Rss, Trash2, Plus, Loader2 } from 'lucide-react';
 import { Column, FeedSource } from '@/lib/types';
 import { useDeckStore } from '@/lib/store';
@@ -41,7 +42,10 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
   const [newSourceUrl, setNewSourceUrl] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const setColumns = useDeckStore((state) => state.setColumns);
@@ -55,7 +59,10 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target as Node) &&
+        dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
+      ) {
         setIsOpen(false);
         setIsRenaming(false);
         setShowSources(false);
@@ -152,18 +159,34 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
     }
   };
 
+  const handleToggle = () => {
+    if (!isOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + 4,
+        left: Math.min(rect.right - 288, window.innerWidth - 296),
+      });
+    }
+    setIsOpen((v) => !v);
+  };
+
   return (
     <div className="relative" ref={menuRef}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        ref={buttonRef}
+        onClick={handleToggle}
         className="p-1.5 hover:bg-background-secondary rounded transition-colors text-foreground-secondary hover:text-foreground"
         title="Column Settings"
       >
         <Settings className="w-4 h-4" />
       </button>
 
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-72 bg-background-secondary border border-border rounded-lg shadow-xl z-50 overflow-hidden max-h-[70vh] overflow-y-auto">
+      {isOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed w-72 bg-background-secondary border border-border rounded-lg shadow-xl z-[200] overflow-hidden max-h-[70vh] overflow-y-auto"
+          style={{ top: menuPos.top, left: menuPos.left }}
+        >
           {/* Rename Section */}
           <div className="p-2 border-b border-border">
             {isRenaming ? (
@@ -397,7 +420,8 @@ export function ColumnSettingsMenu({ column }: ColumnSettingsMenuProps) {
               ))}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -91,9 +91,11 @@ interface ColumnProps {
   refreshTrigger: number;
   dragHandleProps?: DraggableAttributes;
   dragListeners?: DraggableSyntheticListeners;
+  fillWidth?: boolean;
+  forceViewMode?: 'compact' | 'comfortable';
 }
 
-export function Column({ column, onArticleClick, selectedArticleId, refreshTrigger, dragHandleProps, dragListeners }: ColumnProps) {
+export function Column({ column, onArticleClick, selectedArticleId, refreshTrigger, dragHandleProps, dragListeners, fillWidth, forceViewMode }: ColumnProps) {
   const cachedArticles = useArticlesStore((state) => state.articlesByColumn.get(column.id));
   const initialCachedArticles = useRef(cachedArticles);
   const [articles, setArticles] = useState<Article[]>(cachedArticles ?? []);
@@ -183,9 +185,9 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
     if (initialCachedArticles.current && initialCachedArticles.current.length > 0 && refreshTrigger === 0) {
       setArticles(initialCachedArticles.current);
       setIsLoading(false);
-    } else {
-      void fetchFeeds();
     }
+
+    void fetchFeeds();
   }, [fetchFeeds, refreshTrigger]);
 
   // Auto-refresh interval — runs independently so it isn't reset by fetch results
@@ -201,16 +203,6 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
   };
 
   // Resize handlers
-  const handleResizeStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-    startXRef.current = e.clientX;
-    startWidthRef.current = columnWidth;
-
-    document.addEventListener('mousemove', handleResizeMove);
-    document.addEventListener('mouseup', handleResizeEnd);
-  };
-
   const handleResizeMove = useCallback((e: MouseEvent) => {
     const diff = e.clientX - startXRef.current;
     const newWidth = Math.max(MIN_COLUMN_WIDTH, Math.min(MAX_COLUMN_WIDTH, startWidthRef.current + diff));
@@ -221,13 +213,22 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
   const handleResizeEnd = useCallback(() => {
     setIsResizing(false);
     document.removeEventListener('mousemove', handleResizeMove);
-    document.removeEventListener('mouseup', handleResizeEnd);
     void updateColumnRequest(column.id, { width: resizedWidthRef.current })
       .then(applyDeckState)
       .catch((resizeError) => {
         console.error('Failed to persist column width:', resizeError);
       });
   }, [applyDeckState, column.id, handleResizeMove]);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    startXRef.current = e.clientX;
+    startWidthRef.current = columnWidth;
+
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeEnd, { once: true });
+  };
 
   const handleRemoveColumn = async () => {
     try {
@@ -241,7 +242,7 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
     <div
       ref={columnRef}
       className="h-full flex flex-col bg-background-secondary border-r border-border relative"
-      style={{
+      style={fillWidth ? { width: '100%', minWidth: 0 } : {
         width: `${columnWidth}px`,
         minWidth: `${MIN_COLUMN_WIDTH}px`,
         maxWidth: `${MAX_COLUMN_WIDTH}px`,
@@ -346,7 +347,7 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
                 <ArticleCard
                   key={article.id}
                   article={article}
-                  viewMode={column.settings.viewMode}
+                  viewMode={forceViewMode ?? column.settings.viewMode}
                   onClick={onArticleClick}
                   isSelected={article.id === selectedArticleId}
                 />
@@ -357,17 +358,19 @@ export function Column({ column, onArticleClick, selectedArticleId, refreshTrigg
       </div>
 
       {/* Resize Handle */}
-      <div
-        onMouseDown={handleResizeStart}
-        className={cn(
-          'absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-accent/50 transition-colors group',
-          isResizing && 'bg-accent'
-        )}
-      >
-        <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <GripVertical className="w-3 h-3 text-foreground-secondary" />
+      {!fillWidth && (
+        <div
+          onMouseDown={handleResizeStart}
+          className={cn(
+            'absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-accent/50 transition-colors group',
+            isResizing && 'bg-accent'
+          )}
+        >
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-4 h-8 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <GripVertical className="w-3 h-3 text-foreground-secondary" />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

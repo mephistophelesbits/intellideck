@@ -27,6 +27,12 @@ export function AppChrome({ children, renderContent, onRefreshAll, showAddFeedAc
     }
   }, []);
 
+  useEffect(() => {
+    const handler = () => setIsSettingsModalOpen(true);
+    window.addEventListener('intellideck:open-settings', handler);
+    return () => window.removeEventListener('intellideck:open-settings', handler);
+  }, []);
+
   const openAddFeedModal = () => setIsAddFeedModalOpen(true);
   const closeAddFeedModal = () => setIsAddFeedModalOpen(false);
 

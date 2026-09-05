@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/server/db';
-import { runArticleSearch } from '@/lib/server/search-repository';
+import { touchSearchRuleLastRun } from '@/lib/server/search-repository';
+import { runSmartArticleSearch } from '@/lib/server/smart-search';
 import { Article } from '@/lib/types';
 
 const COLUMN_ARTICLE_LIMIT = 100;
@@ -35,6 +36,7 @@ type SearchRuleRow = {
     name: string;
     query: string;
     keywords_json: string;
+    settings_json: string | null;
 };
 
 export async function GET(
@@ -70,7 +72,7 @@ export async function GET(
         if (column.type === 'search' && column.search_rule_id) {
             // Fetch articles using search rule
             const searchRule = db.prepare(`
-        SELECT id, name, query, keywords_json
+        SELECT id, name, query, keywords_json, settings_json
         FROM search_rules
         WHERE id = ?
       `).get(column.search_rule_id) as SearchRuleRow | undefined;
@@ -79,9 +81,17 @@ export async function GET(
                 return NextResponse.json({ error: 'Search rule not found' }, { status: 404 });
             }
 
-            const searchResult = runArticleSearch(searchRule.query);
+            const settings = searchRule.settings_json
+                ? JSON.parse(searchRule.settings_json) as { matchMode?: 'or' | 'and'; excludeKeywords?: string[] }
+                : undefined;
+            const searchResult = await runSmartArticleSearch(searchRule.query, {
+                matchMode: settings?.matchMode,
+                excludeKeywords: settings?.excludeKeywords,
+                limit: COLUMN_ARTICLE_LIMIT,
+            });
+            touchSearchRuleLastRun(searchRule.id);
 
-            // Convert SearchResult to Article format
+            // Convert SmartSearchResult to Article format
             const articles: Article[] = searchResult.results.slice(0, COLUMN_ARTICLE_LIMIT).map(r => ({
                 id: r.id,
                 title: r.title,

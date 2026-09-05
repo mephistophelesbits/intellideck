@@ -8,13 +8,14 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 interface ReadingColumnProps {
     article: Article;
     onClose: () => void;
+    fillWidth?: boolean;
 }
 
 const DEFAULT_READING_WIDTH = 550;
 const MIN_READING_WIDTH = 400;
 const MAX_READING_WIDTH = 900;
 
-export function ReadingColumn({ article, onClose }: ReadingColumnProps) {
+export function ReadingColumn({ article, onClose, fillWidth }: ReadingColumnProps) {
     const [width, setWidth] = useState(DEFAULT_READING_WIDTH);
     const [isResizing, setIsResizing] = useState(false);
 
@@ -62,7 +63,7 @@ export function ReadingColumn({ article, onClose }: ReadingColumnProps) {
         <div
             ref={panelRef}
             className="h-full flex flex-col bg-background/95 backdrop-blur-sm border-r border-border relative z-10 border-l-4 border-l-accent shadow-2xl"
-            style={{
+            style={fillWidth ? { width: '100%', minWidth: 0 } : {
                 width: `${width}px`,
                 flexShrink: 0,
                 flexGrow: 0,
@@ -78,13 +79,15 @@ export function ReadingColumn({ article, onClose }: ReadingColumnProps) {
             </div>
 
             {/* Resize Handle */}
-            <div
-                onMouseDown={handleResizeStart}
-                className={cn(
-                    'absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent/50 transition-colors z-20',
-                    isResizing && 'bg-accent'
-                )}
-            />
+            {!fillWidth && (
+                <div
+                    onMouseDown={handleResizeStart}
+                    className={cn(
+                        'absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent/50 transition-colors z-20',
+                        isResizing && 'bg-accent'
+                    )}
+                />
+            )}
         </div>
     );
 }

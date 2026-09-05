@@ -15,8 +15,6 @@ type ArchivePayload = {
   articleEntities?: Array<Record<string, unknown>>;
   themes?: Array<Record<string, unknown>>;
   articleThemes?: Array<Record<string, unknown>>;
-  briefings?: Array<Record<string, unknown>>;
-  briefingChatMessages?: Array<Record<string, unknown>>;
   trendSnapshots?: Array<Record<string, unknown>>;
 };
 
@@ -29,8 +27,6 @@ export async function POST(request: NextRequest) {
     db.exec('BEGIN');
 
     db.exec(`
-      DELETE FROM briefing_chat_messages;
-      DELETE FROM briefings;
       DELETE FROM trend_snapshots;
       DELETE FROM article_themes;
       DELETE FROM themes;
@@ -74,15 +70,18 @@ export async function POST(request: NextRequest) {
     }
 
     const insertSearchRule = db.prepare(`
-      INSERT INTO search_rules (id, name, query, keywords_json, created_at, updated_at, last_run_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO search_rules (id, name, label_color, query, keywords_json, settings_json, order_index, created_at, updated_at, last_run_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const row of archive.searchRules ?? []) {
+    for (const [index, row] of (archive.searchRules ?? []).entries()) {
       insertSearchRule.run(
         row.id,
         row.name,
+        row.label_color ?? '#f97316',
         row.query,
         row.keywords_json,
+        row.settings_json ?? '{"matchMode":"or","excludeKeywords":[]}',
+        row.order_index ?? index,
         row.created_at,
         row.updated_at,
         row.last_run_at ?? null
@@ -251,39 +250,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const insertBriefing = db.prepare(`
-      INSERT INTO briefings (id, briefing_date, title, executive_summary, key_themes_json, top_stories_json, scope_json, created_at, model_provider, model_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (const row of archive.briefings ?? []) {
-      insertBriefing.run(
-        row.id,
-        row.briefing_date,
-        row.title,
-        row.executive_summary,
-        row.key_themes_json,
-        row.top_stories_json,
-        row.scope_json,
-        row.created_at,
-        row.model_provider ?? null,
-        row.model_name ?? null
-      );
-    }
-
-    const insertBriefingChat = db.prepare(`
-      INSERT INTO briefing_chat_messages (id, briefing_id, role, content, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    for (const row of archive.briefingChatMessages ?? []) {
-      insertBriefingChat.run(
-        row.id,
-        row.briefing_id,
-        row.role,
-        row.content,
-        row.created_at
-      );
-    }
-
     const insertTrendSnapshot = db.prepare(`
       INSERT INTO trend_snapshots (id, snapshot_date, window_type, metric_type, metric_key, value, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -310,7 +276,6 @@ export async function POST(request: NextRequest) {
         feeds: archive.savedFeeds?.length ?? 0,
         columns: archive.columnsState?.length ?? 0,
         articles: archive.articles?.length ?? 0,
-        briefings: archive.briefings?.length ?? 0,
       },
     });
   } catch (error: unknown) {

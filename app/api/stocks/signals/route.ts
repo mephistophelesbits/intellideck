@@ -3,11 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 // Stock watchlist - can be moved to settings later
 const WATCHLIST = ['AAPL', 'MSFT', 'GOOGL', 'NVDA', 'TSLA', 'META', 'AMZN'];
 
-// Simple in-memory cache
-let priceCache: Record<string, any> = {};
-let lastFetch = 0;
-const CACHE_DURATION = 60000; // 1 minute cache
-
 async function fetchStockPrice(symbol: string): Promise<any> {
   try {
     // Using Yahoo Finance API (free, no key needed)

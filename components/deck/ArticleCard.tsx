@@ -1,6 +1,4 @@
-import { useState } from 'react';
-import { Bookmark, Sparkles, Loader2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import { Bookmark } from 'lucide-react';
 import { Article } from '@/lib/types';
 import { useBookmarksStore } from '@/lib/bookmarks-store';
 import { useReadArticlesStore } from '@/lib/read-articles-store';
@@ -17,6 +15,19 @@ interface ArticleCardProps {
   isSelected?: boolean;
 }
 
+// Meridian design direction: show the source's favicon next to its name.
+// Purely presentational — derived from the feed's site URL (or the article link).
+function sourceFaviconUrl(article: Article): string | null {
+  const base = article.sourceUrl || article.link;
+  if (!base) return null;
+  try {
+    const host = new URL(base).hostname;
+    return `https://www.google.com/s2/favicons?domain=${host}&sz=64`;
+  } catch {
+    return null;
+  }
+}
+
 
 
 export function ArticleCard({ article, viewMode = 'comfortable', onClick, isSelected = false }: ArticleCardProps) {
@@ -25,69 +36,16 @@ export function ArticleCard({ article, viewMode = 'comfortable', onClick, isSele
   const bookmarked = isBookmarked(article.id);
   const { isRead, markRead } = useReadArticlesStore();
   const read = isRead(article.id);
-  const { aiSettings, keywordAlerts } = useSettingsStore();
+  const { keywordAlerts } = useSettingsStore();
   const matchedAlert = keywordAlerts
     .filter(a => a.enabled)
     .find(a => {
       const escaped = a.keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       return new RegExp(`\\b${escaped}\\b`, 'i').test(article.title);
     });
-
-  const [summary, setSummary] = useState<string | null>(null);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
-
-
   const handleBookmarkClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     toggleBookmark(article);
-  };
-
-  const handleSummarize = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    if (showSummary && summary) {
-      setShowSummary(false);
-      return;
-    }
-
-    if (summary) {
-      setShowSummary(true);
-      return;
-    }
-
-    if (!aiSettings.enabled) {
-      alert(t('article.aiSummaryDisabled'));
-      return;
-    }
-
-    setIsSummarizing(true);
-    setShowSummary(true);
-
-    try {
-      const res = await fetch('/api/ai/summarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: article.title,
-          content: article.content || article.contentSnippet || '',
-          provider: aiSettings.provider,
-          apiKey: aiSettings.apiKeys?.[aiSettings.provider] || '',
-          ollamaUrl: aiSettings.ollamaUrl,
-          model: aiSettings.model,
-          language: aiSettings.language,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-
-      setSummary(data.summary);
-    } catch (err: any) {
-      setSummary(`Error: ${err.message}`);
-    } finally {
-      setIsSummarizing(false);
-    }
   };
 
   return (
@@ -155,55 +113,29 @@ export function ArticleCard({ article, viewMode = 'comfortable', onClick, isSele
             </p>
           )}
 
-          {/* AI Summary Display */}
-          {showSummary && (
-            <div
-              className="mt-3 p-3 bg-background-secondary rounded-lg border border-border text-sm text-foreground animate-in fade-in slide-in-from-top-1"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center gap-2 mb-2 text-accent font-medium text-xs uppercase tracking-wider">
-                <Sparkles className="w-3 h-3" />
-                {t('article.aiSummary')}
-              </div>
-              {isSummarizing ? (
-                <div className="flex items-center gap-2 text-foreground-secondary">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  {t('article.generatingSummary')}
-                </div>
-              ) : (
-                <div className="text-foreground-secondary">
-                  <ReactMarkdown
-                    components={{
-                      ul: ({ children }) => <ul className="list-disc list-inside space-y-1 my-2">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 my-2">{children}</ol>,
-                      li: ({ children }) => <li className="text-foreground-secondary">{children}</li>,
-                      p: ({ children }) => <p className="my-1">{children}</p>,
-                      strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                      em: ({ children }) => <em className="italic">{children}</em>,
-                      h1: ({ children }) => <h1 className="text-base font-bold text-foreground mt-2 mb-1">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold text-foreground mt-2 mb-1">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold text-foreground mt-2 mb-1">{children}</h3>,
-                      a: ({ href, children }) => <a href={href} className="text-accent hover:underline" target="_blank" rel="noopener noreferrer">{children}</a>,
-                      code: ({ children }) => <code className="bg-background-tertiary px-1 py-0.5 rounded text-xs">{children}</code>,
-                    }}
-                  >
-                    {summary || ''}
-                  </ReactMarkdown>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 mt-1.5 text-xs">
+          <div className="flex items-center gap-1.5 mt-1.5 text-xs">
             {article.sourceTitle && (
               <>
-                <span className="truncate max-w-[120px] text-accent font-medium">
+                {sourceFaviconUrl(article) && (
+                  <img
+                    src={sourceFaviconUrl(article)!}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    className="w-3.5 h-3.5 rounded-sm flex-shrink-0"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                )}
+                <span className="truncate max-w-[140px] text-accent font-mono text-[10px] uppercase tracking-wide font-medium">
                   {decodeHtml(article.sourceTitle)}
                 </span>
                 <span className="text-foreground-secondary">·</span>
               </>
             )}
-            <TimeAgo date={article.pubDate} className="text-warning font-medium" />
+            <TimeAgo date={article.pubDate} className="text-warning font-mono text-[10px] font-medium" />
           </div>
         </div>
       </div>
@@ -222,20 +154,6 @@ export function ArticleCard({ article, viewMode = 'comfortable', onClick, isSele
           title={bookmarked ? t('article.removeBookmark') : t('article.addBookmark')}
         >
           <Bookmark className={cn('w-4 h-4', bookmarked && 'fill-current')} />
-        </div>
-
-        {/* AI Summary button */}
-        <div
-          onClick={handleSummarize}
-          className={cn(
-            'p-1.5 rounded transition-all',
-            showSummary
-              ? 'text-accent bg-accent/10 opacity-100'
-              : 'text-foreground-secondary opacity-0 group-hover:opacity-100 hover:text-accent hover:bg-accent/10'
-          )}
-          title={t('article.generateAiSummary')}
-        >
-          <Sparkles className={cn('w-4 h-4', showSummary && 'fill-current')} />
         </div>
       </div>
     </button>

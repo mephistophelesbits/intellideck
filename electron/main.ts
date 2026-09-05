@@ -11,6 +11,35 @@ import { Menu } from 'electron';
 const IS_DEV = process.env.ELECTRON_IS_DEV === '1';
 let serverUrl = buildServerUrl();
 
+// Only hand http/https/mailto links to the OS — anything else (file:, smb:,
+// custom protocol handlers) could be abused by a malicious link in a feed.
+const SAFE_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+function openExternalSafely(url: string) {
+  try {
+    if (SAFE_EXTERNAL_PROTOCOLS.has(new URL(url).protocol)) {
+      void shell.openExternal(url);
+    } else {
+      console.warn('[electron] Blocked openExternal for unsafe URL:', url);
+    }
+  } catch {
+    console.warn('[electron] Blocked openExternal for unparseable URL:', url);
+  }
+}
+
+function isLocalServerUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const server = new URL(serverUrl);
+    return (
+      (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') &&
+      parsed.port === server.port
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ── Single-instance lock ────────────────────────────────────────────────────
 // Prevents multiple copies from launching. If a second instance starts,
 // focus the existing window and quit the new one immediately.
@@ -129,15 +158,14 @@ async function createWindow() {
 
   // Open external links in system browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    openExternalSafely(url);
     return { action: 'deny' };
   });
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    const parsedUrl = new URL(url);
-    if (parsedUrl.hostname !== 'localhost') {
+    if (!isLocalServerUrl(url)) {
       event.preventDefault();
-      shell.openExternal(url);
+      openExternalSafely(url);
     }
   });
 
@@ -232,7 +260,7 @@ app.on('will-quit', () => {
 // Security: block new window creation
 app.on('web-contents-created', (_event, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    openExternalSafely(url);
     return { action: 'deny' };
   });
 });

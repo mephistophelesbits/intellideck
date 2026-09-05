@@ -157,7 +157,7 @@ export function migrateColumnsToLists(db: DatabaseSync): MigrationStats {
           VALUES (?, ?, ?, ?, ?)
         `).run(itemId, listId, source.id, i, now);
         feedsAdded++;
-      } catch (e) {
+      } catch {
         // Item might already exist, skip
         console.log(`  Feed ${source.url} already in list, skipping...`);
       }
@@ -188,7 +188,7 @@ export function migrateColumnsToLists(db: DatabaseSync): MigrationStats {
         db.prepare('INSERT INTO feed_list_items (id, list_id, feed_id, position, created_at) VALUES (?, ?, ?, ?, ?)')
           .run(itemId, listId, feed.id, i, now);
         feedsAdded++;
-      } catch (e) {
+      } catch {
         console.log(`  Feed ${feed.url} already in list, skipping...`);
       }
     }

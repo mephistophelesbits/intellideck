@@ -1,5 +1,5 @@
-import { IntelligenceDashboard } from '@/components/IntelligenceDashboard';
+import { redirect } from 'next/navigation';
 
 export default function IntelligencePage() {
-  return <IntelligenceDashboard />;
+  redirect('/home');
 }

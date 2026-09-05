@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
 import Image from 'next/image';
 
 export default function LandingPage() {
@@ -10,7 +9,6 @@ export default function LandingPage() {
   useEffect(() => {
     // Check system preference
     if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setIsDark(true);
       document.documentElement.classList.add('dark');
     }
   }, []);

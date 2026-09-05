@@ -79,7 +79,6 @@ export function calculateSimilarity(
     return { score: 0, matchedKeywords: [] };
   }
 
-  const set1 = new Set(keywords1);
   const set2 = new Set(keywords2);
 
   // Find intersection

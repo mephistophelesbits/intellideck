@@ -1,5 +1,5 @@
-import { BriefingsWorkspace } from '@/components/BriefingsWorkspace';
+import { redirect } from 'next/navigation';
 
 export default function BriefingsPage() {
-  return <BriefingsWorkspace />;
+  redirect('/home');
 }

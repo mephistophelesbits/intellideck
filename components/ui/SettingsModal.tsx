@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { nanoid } from 'nanoid';
-import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Save, Zap, ChevronUp, Database, Trash2, ALargeSmall } from 'lucide-react';
-import { useSettingsStore, themes, getThemeById, type FontSize } from '@/lib/settings-store';
+import { X, Palette, Clock, Eye, EyeOff, Sparkles, Loader2, CheckCircle, XCircle, Save, Zap, Database, Trash2, ALargeSmall, Globe } from 'lucide-react';
+import { useSettingsStore, themes, type FontSize } from '@/lib/settings-store';
 import { useDeckStore } from '@/lib/store';
 import { useArticlesStore } from '@/lib/articles-store';
 import { cn } from '@/lib/utils';
@@ -28,8 +28,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     aiSettings,
     setAiSettings,
+    webSearchSettings,
+    setWebSearchSettings,
     keywordAlerts,
     setKeywordAlerts,
+    voiceProfiles,
+    setVoiceProfiles,
   } = useSettingsStore();
 
   const { t } = useTranslation();
@@ -41,15 +45,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [aiTestStatus, setAiTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [aiTestMessage, setAiTestMessage] = useState<string | null>(null);
   const [aiSaved, setAiSaved] = useState(false);
-  const [showAllThemes, setShowAllThemes] = useState(false);
+  const [pullStatus, setPullStatus] = useState<'idle' | 'pulling' | 'done' | 'error'>('idle');
 
   const [newKeyword, setNewKeyword] = useState('');
   const [newColor, setNewColor] = useState('#ff4444');
 
-  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'keyword-alerts' | 'data'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'keyword-alerts' | 'data' | 'voice'>('general');
+  const [voiceRulesText, setVoiceRulesText] = useState<string | null>(null);
+  const [voiceExamplesText, setVoiceExamplesText] = useState<string | null>(null);
 
   // Data / retention state
-  const RETENTION_OPTIONS = [7, 14, 30, 60, 90];
   const [retentionDays, setRetentionDays] = useState(30);
   const [cleanupRunning, setCleanupRunning] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
@@ -70,7 +75,17 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
         if (data.connected) {
           setOllamaStatus('connected');
-          setAvailableModels(data.models?.map((m: any) => m.name) || []);
+          const models: string[] = Array.isArray(data.models)
+            ? data.models.flatMap((model: unknown) => (
+              typeof model === 'object' && model !== null && 'name' in model && typeof model.name === 'string'
+                ? [model.name]
+                : []
+            ))
+            : [];
+          setAvailableModels(models);
+          if (models.length > 0 && !models.includes(aiSettings.model)) {
+            setAiSettings({ model: models[0] });
+          }
         } else {
           setOllamaStatus('disconnected');
           setAvailableModels([]);
@@ -82,7 +97,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     };
 
     checkOllama();
-  }, [isOpen, aiSettings.ollamaUrl, aiSettings.provider]);
+  }, [isOpen, aiSettings.ollamaUrl, aiSettings.provider, aiSettings.model, setAiSettings]);
 
   const testAiConnection = async () => {
     setIsTestingAi(true);
@@ -91,7 +106,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
     // 15s timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
 
     try {
       const res = await fetch('/api/ai/summarize', {
@@ -231,6 +246,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             >
               {t('settings.data.tab')}
               {activeTab === 'data' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t-full" />}
+            </button>
+            <button
+              onClick={() => setActiveTab('voice')}
+              className={cn(
+                "pb-2 transition-colors relative",
+                activeTab === 'voice' ? "text-foreground font-medium" : "text-foreground-secondary hover:text-foreground"
+              )}
+            >
+              {t('settings.voice.tab')}
+              {activeTab === 'voice' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-accent rounded-t-full" />}
             </button>
           </div>
         </div>
@@ -496,7 +521,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               e.target.value === 'anthropic' ? 'claude-sonnet-4-6' :
                                 e.target.value === 'minimax' ? 'MiniMax-M2.5' :
                                   e.target.value === 'kimi' ? 'kimi-k2.5' :
-                                    'gemini-3-pro-preview'
+                                    e.target.value === 'nvidia' ? 'google/gemma-4-31b-it' :
+                                      'gemini-3-pro-preview'
                         })}
                         className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:border-accent focus:outline-none"
                       >
@@ -506,6 +532,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                         <option value="gemini">{t('settings.geminiApi')}</option>
                         <option value="minimax">{t('settings.minimaxApi')}</option>
                         <option value="kimi">{t('settings.kimiApi')}</option>
+                        <option value="nvidia">{t('settings.nvidiaApi')}</option>
                       </select>
                     </div>
 
@@ -608,6 +635,47 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       )}
                     </div>
 
+                    {/* Embedding model */}
+                    {aiSettings.provider === 'ollama' && ollamaStatus === 'connected' && (
+                      <div className="space-y-1 p-3 rounded-lg bg-background-tertiary border border-border">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs font-medium">Embedding model</p>
+                            <p className="text-xs text-foreground-secondary mt-0.5">
+                              <code className="bg-background px-1 rounded">nomic-embed-text</code> — required for local semantic matching
+                            </p>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              setPullStatus('pulling');
+                              try {
+                                const res = await fetch('/api/ai/pull-model', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ model: 'nomic-embed-text' }),
+                                });
+                                setPullStatus(res.ok ? 'done' : 'error');
+                              } catch {
+                                setPullStatus('error');
+                              }
+                            }}
+                            disabled={pullStatus === 'pulling'}
+                            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-border hover:border-accent hover:text-accent transition-colors disabled:opacity-50"
+                          >
+                            {pullStatus === 'pulling' ? (
+                              <><Loader2 className="w-3 h-3 animate-spin" /> Pulling…</>
+                            ) : pullStatus === 'done' ? (
+                              <><CheckCircle className="w-3 h-3 text-success" /> Pulled</>
+                            ) : pullStatus === 'error' ? (
+                              <><XCircle className="w-3 h-3 text-error" /> Failed</>
+                            ) : (
+                              <>Pull model</>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Custom Summary Prompt */}
                     <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
                       <div className="flex items-center justify-between">
@@ -672,6 +740,57 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </div>
                 )}
               </div>
+
+              {/* Web Search */}
+              <div className="space-y-3 pt-4 border-t border-border">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-accent" />
+                    Web Search
+                  </h3>
+                  <button
+                    onClick={() => setWebSearchSettings({ enabled: !webSearchSettings.enabled })}
+                    className={cn(
+                      'relative w-10 h-5 rounded-full transition-colors',
+                      webSearchSettings.enabled ? 'bg-accent' : 'bg-border'
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+                        webSearchSettings.enabled ? 'translate-x-5' : 'translate-x-0.5'
+                      )}
+                    />
+                  </button>
+                </div>
+
+                {webSearchSettings.enabled && (
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground-secondary">SearXNG URL</label>
+                      <input
+                        type="url"
+                        value={webSearchSettings.searxngUrl}
+                        onChange={(e) => setWebSearchSettings({ searxngUrl: e.target.value })}
+                        placeholder="http://localhost:8080"
+                        className="w-full text-sm bg-background-tertiary border border-border rounded-lg px-3 py-2 outline-none focus:border-accent transition-colors"
+                      />
+                      <p className="text-xs text-foreground-secondary/60">Self-hosted SearXNG instance (primary)</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground-secondary">Brave Search API Key</label>
+                      <input
+                        type="password"
+                        value={webSearchSettings.braveApiKey}
+                        onChange={(e) => setWebSearchSettings({ braveApiKey: e.target.value })}
+                        placeholder="BSA…"
+                        className="w-full text-sm bg-background-tertiary border border-border rounded-lg px-3 py-2 outline-none focus:border-accent transition-colors font-mono"
+                      />
+                      <p className="text-xs text-foreground-secondary/60">Fallback if SearXNG is unavailable</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -725,6 +844,49 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Voice tab */}
+          {activeTab === 'voice' && (
+            <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+              <div>
+                <h3 className="text-sm font-semibold">{t('settings.voice.heading')}</h3>
+                <p className="text-xs text-foreground-secondary mt-1">{t('settings.voice.description')}</p>
+              </div>
+              <label className="block">
+                <span className="text-sm">{t('settings.voice.rulesLabel')}</span>
+                <textarea
+                  className="mt-1 w-full h-28 rounded-lg border border-border bg-background p-2 text-sm"
+                  value={voiceRulesText ?? (voiceProfiles.xhs?.rules ?? []).join('\n')}
+                  onChange={(e) => setVoiceRulesText(e.target.value)}
+                  onBlur={() => {
+                    if (voiceRulesText === null) return;
+                    setVoiceProfiles({
+                      ...voiceProfiles,
+                      xhs: { rules: voiceRulesText.split('\n').map((s) => s.trim()).filter(Boolean), fewShot: voiceProfiles.xhs?.fewShot ?? [] },
+                    });
+                    setVoiceRulesText(null);
+                  }}
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm">{t('settings.voice.examplesLabel')}</span>
+                <p className="text-xs text-foreground-secondary mt-0.5">{t('settings.voice.examplesHint')}</p>
+                <textarea
+                  className="mt-1 w-full h-40 rounded-lg border border-border bg-background p-2 text-sm"
+                  value={voiceExamplesText ?? (voiceProfiles.xhs?.fewShot ?? []).join('\n\n')}
+                  onChange={(e) => setVoiceExamplesText(e.target.value)}
+                  onBlur={() => {
+                    if (voiceExamplesText === null) return;
+                    setVoiceProfiles({
+                      ...voiceProfiles,
+                      xhs: { rules: voiceProfiles.xhs?.rules ?? [], fewShot: voiceExamplesText.split(/\n\n+/).map((s) => s.trim()).filter(Boolean) },
+                    });
+                    setVoiceExamplesText(null);
+                  }}
+                />
+              </label>
             </div>
           )}
         </div>

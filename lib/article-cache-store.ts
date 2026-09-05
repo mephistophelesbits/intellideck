@@ -246,7 +246,8 @@ export const useArticleCacheStore = create<ArticleCacheState>()(
 
       clearChat: (articleId) =>
         set((state) => {
-          const { [articleId]: _, ...remainingChats } = state.chats;
+          const remainingChats = { ...state.chats };
+          delete remainingChats[articleId];
           return { chats: remainingChats };
         }),
 

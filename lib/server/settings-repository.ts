@@ -1,6 +1,8 @@
 import 'server-only';
 
 import { getDb } from './db';
+import { getDefaultSettingsSnapshot } from '@/lib/settings-store';
+import type { AIProvider } from '@/lib/ai/providers';
 import type { KeywordAlert } from '@/lib/types';
 
 export type PersistedSettings = {
@@ -12,7 +14,7 @@ export type PersistedSettings = {
   aiSettings: {
     enabled: boolean;
     sentimentEnabled: boolean;
-    provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'minimax' | 'kimi';
+    provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'minimax' | 'kimi' | 'nvidia';
     ollamaUrl: string;
     apiKeys: Record<string, string>;
     model: string;
@@ -27,7 +29,13 @@ export type PersistedSettings = {
     telegramChatId: string;
     lastGenerated: string | null;
   };
+  voiceProfiles?: Record<string, { rules: string[]; fewShot: string[] }>;
   keywordAlerts: KeywordAlert[];
+  webSearchSettings?: {
+    enabled: boolean;
+    searxngUrl: string;
+    braveApiKey: string;
+  };
 };
 
 const SETTINGS_ID = 'global';
@@ -68,4 +76,43 @@ export function savePersistedSettings(settings: PersistedSettings) {
   );
 
   return settings;
+}
+
+export interface ServerAISettings {
+  enabled: boolean;
+  provider: AIProvider;
+  model: string;
+  baseUrl?: string;
+  apiKey?: string;
+  embedModel: string;
+  language: string;
+}
+
+// Resolve the persisted AI configuration into the shape the provider layer expects.
+// Embeddings are always local (Ollama) regardless of the chat provider.
+export function getServerAISettings(): ServerAISettings {
+  const { aiSettings } = getPersistedSettings(getDefaultSettingsSnapshot());
+  return {
+    enabled: aiSettings.enabled,
+    provider: aiSettings.provider,
+    model: aiSettings.model,
+    baseUrl: aiSettings.ollamaUrl,
+    apiKey: aiSettings.apiKeys?.[aiSettings.provider],
+    embedModel: 'nomic-embed-text',
+    language: aiSettings.language,
+  };
+}
+
+export interface VoiceProfile {
+  rules: string[];
+  fewShot: string[];
+}
+
+export function getVoiceProfile(platform: string): VoiceProfile {
+  const settings = getPersistedSettings(getDefaultSettingsSnapshot());
+  const profile = settings.voiceProfiles?.[platform];
+  return {
+    rules: profile?.rules ?? [],
+    fewShot: profile?.fewShot ?? [],
+  };
 }

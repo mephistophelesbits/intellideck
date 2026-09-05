@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 interface IndexData {
   symbol: string;
@@ -32,8 +32,6 @@ const INDICES = [
 ];
 
 async function fetchYahooFinanceData(symbols: string[]): Promise<IndexData[]> {
-  const results: IndexData[] = [];
-
   // Fetch all symbols in parallel
   const promises = symbols.map(async (symbol) => {
     try {
@@ -104,7 +102,7 @@ function getMockData(): IndexData[] {
   });
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const symbols = INDICES.map((i) => i.symbol);
     const data = await fetchYahooFinanceData(symbols);

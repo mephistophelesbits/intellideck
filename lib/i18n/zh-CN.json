@@ -1,5 +1,6 @@
 {
   "nav": {
+    "home": "监控",
     "today": "今日",
     "rawFeed": "原始信息流",
     "archive": "归档",
@@ -15,6 +16,39 @@
     "switchToLight": "切换为浅色模式",
     "switchToDark": "切换为深色模式",
     "switchLanguage": "切换为英文"
+  },
+  "monitoring": {
+    "title": "监控",
+    "description": "按已保存的搜索分组跟踪覆盖面、情绪和突发亮点。",
+    "newSearch": "新搜索",
+    "searchSettings": "搜索设置",
+    "matchMode": "匹配模式",
+    "matchAny": "或",
+    "matchAll": "且",
+    "ruleColor": "规则颜色",
+    "ruleColorPreview": "规则名称预览",
+    "excludeKeywords": "排除关键词",
+    "excludePlaceholder": "用逗号分隔要排除的关键词",
+    "editSearch": "编辑已保存搜索",
+    "reorderSearch": "拖动排序已保存搜索",
+    "editingSearch": "正在编辑已保存搜索",
+    "window": "时间范围",
+    "lastDays": "最近 {count} 天",
+    "updated": "更新于",
+    "loading": "正在加载监控分组...",
+    "latest": "最新",
+    "feedCount": "订阅源",
+    "matches": "匹配",
+    "escalating": "升温",
+    "breaking": "突发",
+    "sentiment": "情绪",
+    "sentimentPositive": "正向",
+    "sentimentNeutral": "中性",
+    "sentimentNegative": "负向",
+    "breakingHighlights": "突发亮点",
+    "noBreakingHighlights": "当前时间范围内没有突发亮点。",
+    "emptyTitle": "还没有已保存的搜索分组。",
+    "emptyBody": "先在这里运行并保存一个关键词规则，再开始监控。"
   },
   "today": {
     "agentDesk": "代理简报台",
@@ -59,7 +93,24 @@
     "briefingHighlights": "简报亮点",
     "closeArticle": "关闭文章",
     "resizeBriefing": "调整简报面板宽度",
-    "resizeFeed": "调整信息流面板宽度"
+    "resizeFeed": "调整信息流面板宽度",
+    "agentChat": "Agent 对话",
+    "agentWorkspace": "Agent 工作台",
+    "agentDbFirstHint": "回答优先基于你的本地数据库。",
+    "presetDailyAiBrief": "立即生成 AI 日报",
+    "presetSchedule9am": "设置每日 9:00 AI 日报",
+    "presetTopicSummary": "按主题总结数据库内容",
+    "presetTrendAnalysis": "趋势分析（7天 vs 30天）",
+    "presetChangesYesterday": "相比昨天发生了什么",
+    "agentThinking": "正在生成回复...",
+    "agentInputPlaceholder": "输入你要从数据库获取的总结或分析",
+    "agentInsufficientData": "内部数据不足，结论可信度有限。",
+    "internalSources": "内部来源",
+    "externalSources": "外部来源",
+    "webEnrichmentOn": "联网补充：开启",
+    "webEnrichmentOff": "联网补充：关闭",
+    "dbFirstMode": "数据库优先模式",
+    "send": "发送"
   },
   "briefings": {
     "title": "简报",
@@ -138,6 +189,7 @@
     "geminiApi": "Google Gemini（API）",
     "minimaxApi": "Minimax（API）",
     "kimiApi": "Kimi / Moonshot（API）",
+    "nvidiaApi": "NVIDIA NIM（API）",
     "apiKey": "API 密钥",
     "enterApiKey": "输入 {provider} API 密钥",
     "hideApiKey": "隐藏 API 密钥",
@@ -172,12 +224,20 @@
     "data": {
       "tab": "数据",
       "retentionTitle": "文章保留策略",
-      "retentionDesc": "自动删除超出保留期限的旧文章。书签和简报不受影响。",
+      "retentionDesc": "自动删除超出保留期限的旧文章。书签不受影响。",
       "days": "天",
       "runCleanup": "立即清理",
       "running": "清理中…",
       "cleanupDone": "已删除 {articles} 篇文章及 {snapshots} 条旧快照。",
       "cleanupError": "清理失败，请重试。"
+    },
+    "voice": {
+      "tab": "文风",
+      "heading": "小红书文风档案",
+      "description": "定义你的小红书草稿文风。",
+      "rulesLabel": "文风规则（每行一条）",
+      "examplesLabel": "示例帖子（每篇之间空一行）",
+      "examplesHint": "粘贴几篇你真实发布过的帖子，让草稿贴近你的文风。"
     }
   },
   "search": {
@@ -216,6 +276,7 @@
     "generating": "生成中…",
     "briefingGeneratedSuccess": "简报生成成功！请查看简报页面。",
     "sortBy": "排序方式",
+    "sortEscalating": "升温优先",
     "sortNewest": "最新优先",
     "sortOldest": "最旧优先"
   },
@@ -284,6 +345,51 @@
     "removeBookmark": "移除收藏",
     "addBookmark": "添加收藏",
     "generateAiSummary": "生成 AI 摘要"
+  },
+  "entity": {
+    "salience": "显著度",
+    "mentions": "提及次数",
+    "firstSeen": "首次出现",
+    "lastSeen": "最近出现",
+    "appearsIn": "出现于",
+    "noSummary": "暂无摘要——随着更多文章提及该实体，摘要将自动生成。",
+    "notFound": "未找到该实体。",
+    "back": "情报"
+  },
+  "story": {
+    "developing": "进行中",
+    "dormant": "已沉寂",
+    "updated": "更新于",
+    "sources": "来源",
+    "newSinceLastRead": "{count} 条新进展（自上次阅读）",
+    "timeline": "时间线",
+    "openAgent": "用智能体研究",
+    "draftPost": "撰写帖子",
+    "agent": "智能体",
+    "noStories": "暂无故事——当相关文章被采集后会自动形成。"
+  },
+  "briefing": {
+    "title": "每日简报",
+    "expand": "阅读完整简报",
+    "collapse": "收起",
+    "none": "暂无简报——每天早晨会根据你的故事自动生成。",
+    "generate": "立即生成",
+    "generating": "正在生成…"
+  },
+  "draft": {
+    "title": "撰写帖子",
+    "anglePlaceholder": "可选的角度或切入点…",
+    "generate": "生成草稿",
+    "generating": "正在生成…",
+    "regenerate": "重新生成",
+    "save": "保存草稿",
+    "saved": "已保存",
+    "copy": "复制",
+    "copied": "已复制",
+    "publish": "标记为已发布",
+    "published": "已发布",
+    "empty": "先生成草稿，然后在此编辑。",
+    "charCount": "{count} 字"
   },
   "intelligence": {
     "title": "情报",

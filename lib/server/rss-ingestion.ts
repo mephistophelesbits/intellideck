@@ -7,6 +7,7 @@ import { persistArticles, rebuildArticleTrendSnapshots } from '@/lib/server/arti
 import { listSavedFeeds, recordFeedFetchResult } from '@/lib/server/deck-repository';
 
 const REFRESH_FEED_CONCURRENCY = 4;
+const FEED_FETCH_TIMEOUT_MS = 15_000;
 
 const parser = new Parser({
   customFields: {
@@ -36,6 +37,8 @@ async function parseFeedFromUrl(fetchUrl: string) {
           'Accept-Language': 'en-US,en;q=0.9',
         },
         redirect: 'follow',
+        // A hanging feed must not stall a refresh worker slot indefinitely
+        signal: AbortSignal.timeout(FEED_FETCH_TIMEOUT_MS),
       });
 
       if (!rssResponse.ok) {

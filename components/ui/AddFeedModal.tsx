@@ -76,21 +76,6 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
     }
   }, [activeTab]);
 
-  // Auto-fill column title when selection changes
-  useEffect(() => {
-    if (selectedListId) {
-      const list = feedLists.find(l => l.id === selectedListId);
-      if (list) setListColumnTitle(list.name);
-    }
-  }, [selectedListId, feedLists]);
-
-  useEffect(() => {
-    if (selectedSearchRuleId) {
-      const rule = searchRules.find(r => r.id === selectedSearchRuleId);
-      if (rule) setSearchColumnTitle(rule.name || rule.query);
-    }
-  }, [selectedSearchRuleId, searchRules]);
-
   const columns = useDeckStore((state) => state.columns);
   const savedFeeds = useDeckStore((state) => state.savedFeeds);
   const setColumns = useDeckStore((state) => state.setColumns);
@@ -157,6 +142,7 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
       const newList = await res.json();
       setFeedLists(prev => [...prev, newList]);
       setSelectedListId(newList.id);
+      setListColumnTitle(newList.name);
       setNewListName('');
       setIsCreatingList(false);
     } catch (error) {
@@ -710,7 +696,10 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
                 {feedLists.map((list) => (
                   <button
                     key={list.id}
-                    onClick={() => setSelectedListId(list.id)}
+                    onClick={() => {
+                      setSelectedListId(list.id);
+                      setListColumnTitle(list.name);
+                    }}
                     className={cn(
                       'w-full p-3 rounded-lg border text-left transition-all',
                       selectedListId === list.id
@@ -822,7 +811,10 @@ export function AddFeedModal({ isOpen, onClose }: AddFeedModalProps) {
                 {searchRules.map((rule) => (
                   <button
                     key={rule.id}
-                    onClick={() => setSelectedSearchRuleId(rule.id)}
+                    onClick={() => {
+                      setSelectedSearchRuleId(rule.id);
+                      setSearchColumnTitle(rule.name || rule.query);
+                    }}
                     className={cn(
                       'w-full p-3 rounded-lg border text-left transition-all',
                       selectedSearchRuleId === rule.id

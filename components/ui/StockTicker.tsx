@@ -118,12 +118,15 @@ export function StockTicker() {
 
   // Initial fetch and refresh interval
   useEffect(() => {
-    fetchData();
+    const initialFetch = window.setTimeout(fetchData, 0);
 
     // Refresh every 60 seconds
     const interval = setInterval(fetchData, 60000);
 
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialFetch);
+      clearInterval(interval);
+    };
   }, []);
 
   // Smooth scrolling animation

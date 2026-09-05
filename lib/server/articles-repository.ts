@@ -13,6 +13,13 @@ import {
   getPreferenceWeightMap,
   type RecommendationVariant,
 } from './preferences-repository';
+import { embedText, embedTextBatch } from '@/lib/ai/providers';
+import { truncateForOllama } from '@/lib/ai/ollama-utils';
+import { extractEntitiesDeterministic } from './entity-extraction';
+import { upsertEntitiesForArticle } from './entities-repository';
+import { upsertArticleVector } from './article-vectors-repository';
+import { getServerAISettings } from './settings-repository';
+import { findNearDuplicate } from './dedup';
 
 type KeywordCloudRow = {
   name: string;
@@ -274,12 +281,23 @@ export function persistArticles(
       updated_at = excluded.updated_at
   `);
   const enrichmentStatements = createEnrichmentStatements(db);
+  const existingHashStatement = db.prepare(
+    'SELECT hash_fingerprint FROM articles WHERE canonical_url = ?'
+  );
 
   db.exec('BEGIN IMMEDIATE');
   try {
     for (const article of articles) {
       const canonicalUrl = article.link || article.id;
       const articleId = canonicalUrl;
+      // Only (re)enrich genuinely new or changed articles. Feed refreshes re-fetch the
+      // same items every cycle; enriching unchanged ones re-runs 2 LLM calls each and
+      // saturates a single-slot inference host for no benefit.
+      const articleHash = hashArticle(article);
+      const priorHash = (existingHashStatement.get(canonicalUrl) as
+        | { hash_fingerprint: string }
+        | undefined)?.hash_fingerprint;
+      const needsEnrichment = priorHash === undefined || priorHash !== articleHash;
       articleStatement.run(
         articleId,
         sourceUrl,
@@ -294,7 +312,7 @@ export function persistArticles(
         null,
         null,
         article.thumbnail || null,
-        hashArticle(article),
+        articleHash,
         now,
         now
       );
@@ -307,6 +325,17 @@ export function persistArticles(
         pubDate: article.pubDate || null,
         analyzedAt: now,
       });
+      // Async AI enrichment runs after this transaction commits (microtask + queue).
+      // Skip unchanged re-fetches so refreshes don't re-enrich the whole feed.
+      if (needsEnrichment) {
+        void enqueueArticleEnrichment({
+          articleId,
+          title: article.title,
+          contentSnippet: article.contentSnippet || null,
+          rawContent: truncateStoredArticleContent(article.content),
+          occurredAt: article.pubDate || now,
+        });
+      }
     }
     db.exec('COMMIT');
   } catch (error) {
@@ -378,6 +407,13 @@ export function updateArticleFullContent(articleId: string, scraped: ScrapedArti
     pubDate: enrichedRow.published_at,
     analyzedAt,
   });
+  void enqueueArticleEnrichment({
+    articleId: enrichedRow.id,
+    title: enrichedRow.title,
+    contentSnippet: enrichedRow.content_snippet,
+    rawContent: enrichedRow.raw_content,
+    occurredAt: enrichedRow.published_at || analyzedAt,
+  });
 }
 
 export function reprocessStoredArticles(limit = 500) {
@@ -408,6 +444,13 @@ export function reprocessStoredArticles(limit = 500) {
       pubDate: row.published_at,
       analyzedAt: now,
     });
+    void enqueueArticleEnrichment({
+      articleId: row.id,
+      title: row.title,
+      contentSnippet: row.content_snippet,
+      rawContent: row.raw_content,
+      occurredAt: row.published_at || now,
+    });
   }
 
   rebuildTrendSnapshots();
@@ -416,6 +459,47 @@ export function reprocessStoredArticles(limit = 500) {
     processedCount: rows.length,
     analyzedAt: now,
   };
+}
+
+/**
+ * Re-run deterministic entity extraction (jieba + colon-subject + Latin regex) over stored
+ * articles and rewrite their entity links. CPU-only — no embeddings, no LLM. Required before
+ * a rebuild: clustering now corroborates merges with a shared *specific* entity, and older
+ * articles were enriched when extraction recall was far lower (places and filing-subject
+ * companies were missed), so re-clustering on the stale links would fail-closed everything
+ * into singletons. Processes newest-first and is bounded by `limit`.
+ */
+export async function reextractEntitiesForArticles(limit = 50_000): Promise<{ processed: number }> {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT id, title, content_snippet, raw_content, published_at, created_at
+    FROM articles
+    ORDER BY COALESCE(published_at, created_at) DESC
+    LIMIT ?
+  `).all(limit) as Array<{
+    id: string;
+    title: string;
+    content_snippet: string | null;
+    raw_content: string | null;
+    published_at: string | null;
+    created_at: string | null;
+  }>;
+
+  let processed = 0;
+  for (const row of rows) {
+    try {
+      const content = `${row.content_snippet || ''}\n${row.raw_content || ''}`.trim();
+      const entities = extractEntitiesDeterministic(row.title, content);
+      upsertEntitiesForArticle(row.id, row.published_at || row.created_at || new Date().toISOString(), entities);
+      processed += 1;
+    } catch (error) {
+      console.error(`[reextract] failed for ${row.id}:`, error);
+    }
+    // jieba tagging is synchronous CPU work; yield periodically so a full-corpus
+    // re-extraction doesn't stall the single Node event loop for minutes.
+    if (processed % 200 === 0) await new Promise((r) => setImmediate(r));
+  }
+  return { processed };
 }
 
 function createEnrichmentStatements(db: ReturnType<typeof getDb>): EnrichmentStatements {
@@ -594,6 +678,142 @@ function upsertArticleEnrichment(
       themeId,
       theme.score
     );
+  }
+}
+
+export interface ArticleEnrichmentInput {
+  articleId: string;
+  title: string;
+  contentSnippet: string | null;
+  rawContent: string | null;
+  occurredAt: string;
+}
+
+// IntelliDeck 2.0: embedding + deterministic enrichment. Async + best-effort; isolated
+// failures never block ingestion. A micro-batching drainer collects queued articles and
+// embeds them in ONE Ollama /api/embed round-trip per batch (the embed round-trip is the
+// dominant cost when draining a backlog), then runs the order-dependent post-embed work
+// (vector upsert → near-dup guard → entities) serially, preserving the
+// exact single-article semantics. The embed batching is the only behavioural change.
+const EMBED_BATCH_SIZE = 16;
+const pendingItems: Array<{ article: ArticleEnrichmentInput; resolve: () => void }> = [];
+let draining = false;
+let pendingEnrichmentCount = 0;
+let idleResolvers: Array<() => void> = [];
+
+/** Number of articles still waiting in the enrichment queue. The background worker
+ *  uses this to give live enrichment priority over rolling summary regeneration —
+ *  live news should never stall behind background maintenance on a busy inference host. */
+export function getPendingEnrichmentCount(): number {
+  return pendingEnrichmentCount;
+}
+
+/** Returns a promise that resolves when the enrichment queue is fully drained. */
+export function waitForEnrichmentQueue(): Promise<void> {
+  if (!draining && pendingItems.length === 0) return Promise.resolve();
+  return new Promise<void>((resolve) => idleResolvers.push(resolve));
+}
+
+export function enqueueArticleEnrichment(article: ArticleEnrichmentInput): Promise<void> {
+  pendingEnrichmentCount += 1;
+  const done = new Promise<void>((resolve) => pendingItems.push({ article, resolve }));
+  void drainEnrichmentQueue();
+  return done;
+}
+
+function embedInputFor(article: ArticleEnrichmentInput): string {
+  const content = `${article.contentSnippet || ''}\n${article.rawContent || ''}`.trim();
+  // nomic-embed-text caps at ~2048 tokens; truncate conservatively to stay under it across
+  // mixed/CJK content (token density varies). Title + lead is enough to cluster on.
+  return truncateForOllama(`${article.title}\n${content}`, 5000);
+}
+
+async function drainEnrichmentQueue(): Promise<void> {
+  if (draining) return;
+  draining = true;
+  try {
+    while (pendingItems.length > 0) {
+      const settings = getServerAISettings();
+      const batch = pendingItems.splice(0, EMBED_BATCH_SIZE);
+
+      let embeddings: (number[] | null)[] = batch.map(() => null);
+      if (settings.enabled) {
+        try {
+          embeddings = await embedTextBatch('ollama', batch.map((b) => embedInputFor(b.article)), {
+            model: settings.embedModel,
+            baseUrl: settings.baseUrl,
+          });
+        } catch (error) {
+          console.error('[enrich] batch embedding failed:', error);
+        }
+      }
+
+      // Post-embed work stays serial and in arrival order so dedup/entity writes remain
+      // stable under backlog drain.
+      for (let i = 0; i < batch.length; i += 1) {
+        try {
+          if (settings.enabled) await postEmbedEnrich(batch[i].article, embeddings[i]);
+        } catch (error) {
+          console.error(`[enrich] queue error for ${batch[i].article.articleId}:`, error);
+        } finally {
+          pendingEnrichmentCount -= 1;
+          batch[i].resolve();
+        }
+      }
+    }
+  } finally {
+    draining = false;
+    const resolvers = idleResolvers;
+    idleResolvers = [];
+    for (const resolve of resolvers) resolve();
+    // An item enqueued during the idle-resolve above must not be stranded.
+    if (pendingItems.length > 0) void drainEnrichmentQueue();
+  }
+}
+
+/** Single-article enrichment (used directly outside the batching queue). */
+export async function enrichArticleWithAI(article: ArticleEnrichmentInput): Promise<void> {
+  const settings = getServerAISettings();
+  if (!settings.enabled) return;
+
+  let embedding: number[] | null = null;
+  try {
+    embedding = await embedText('ollama', embedInputFor(article), {
+      model: settings.embedModel,
+      baseUrl: settings.baseUrl,
+    });
+  } catch (error) {
+    console.error(`[enrich] embedding failed for ${article.articleId}:`, error);
+  }
+  await postEmbedEnrich(article, embedding);
+}
+
+/** Post-embedding enrichment: vector upsert → near-dup guard → entities.
+ *  Order-dependent and best-effort; each step isolates its own failure. */
+async function postEmbedEnrich(article: ArticleEnrichmentInput, embedding: number[] | null): Promise<void> {
+  const content = `${article.contentSnippet || ''}\n${article.rawContent || ''}`.trim();
+
+  // Near-duplicate guard: a near-verbatim repost of a recent article should not inflate any
+  // story/actor/trajectory/source counts. It still ingests (and keeps its vector).
+  if (embedding && embedding.length > 0) {
+    try {
+      upsertArticleVector(article.articleId, embedding);
+    } catch (error) {
+      console.error(`[enrich] vector upsert failed for ${article.articleId}:`, error);
+    }
+    const dup = findNearDuplicate(article.articleId, embedding);
+    if (dup) {
+      console.log(`[enrich] near-duplicate of ${dup.articleId} (d=${dup.distance.toFixed(2)}); skipping enrichment for ${article.articleId}`);
+      return;
+    }
+  }
+
+  // Deterministic entities (regex/gazetteer + jieba) — no LLM in the hot path.
+  try {
+    const entities = extractEntitiesDeterministic(article.title, content);
+    upsertEntitiesForArticle(article.articleId, article.occurredAt, entities);
+  } catch (error) {
+    console.error(`[enrich] entity extraction failed for ${article.articleId}:`, error);
   }
 }
 
